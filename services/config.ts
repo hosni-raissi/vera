@@ -24,6 +24,7 @@ export const API_ENDPOINTS = {
   // Authentication
   REGISTER: '/auth/register',
   LOGIN: '/auth/login',
+  VERIFY_VOICE: '/auth/verify-voice',
   
   // User
   GET_PROFILE: '/user/profile',

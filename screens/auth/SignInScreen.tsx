@@ -4,9 +4,11 @@ import { useState, useEffect } from "react"
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { Audio } from "expo-av"
+import { deleteAsync } from "expo-file-system"
+import { File } from "expo-file-system/next"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLanguage } from "../../utils/LanguageContext"
-import { AuthService, StorageApiService } from "../../services"
+import { AuthService } from "../../services"
 
 export default function SignInScreen({ navigation, onSignIn }: any) {
   const insets = useSafeAreaInsets()
@@ -27,9 +29,9 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
     passwordLabel: { en: "Password", fr: "Mot de passe" },
     passwordPlaceholder: { en: "Enter your password", fr: "Entrez votre mot de passe" },
     voiceTitle: { en: "Voice Authentication", fr: "Authentification Vocale" },
-    voiceSubtitle: { en: "Record your voice for secure login", fr: "Enregistrez votre voix pour une connexion sécurisée" },
-    recording: { en: "Recording", fr: "Enregistrement" },
-    tapToRecord: { en: "Tap to record (5s)", fr: "Appuyez pour enregistrer (5s)" },
+    voiceSubtitle: { en: "Speak clearly for 5 seconds", fr: "Parlez clairement pendant 5 secondes" },
+    recording: { en: "Recording - SPEAK NOW", fr: "Enregistrement - PARLEZ" },
+    tapToRecord: { en: "Tap & Speak (5s)", fr: "Appuyez et Parlez (5s)" },
     voiceRecorded: { en: "✓ Voice recorded! Press Sign In button below", fr: "✓ Voix enregistrée ! Appuyez sur le bouton ci-dessous" },
     signInButton: { en: "Sign In", fr: "Se connecter" },
     signingIn: { en: "Signing in...", fr: "Connexion..." },
@@ -54,6 +56,10 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
   }, [recording])
 
   const handleSignIn = async () => {
+    // IMPORTANT: Login voice is NEVER uploaded to MEGA
+    // It's only sent to /auth/verify-voice for comparison, then deleted
+    // Only the registration voice is stored in MEGA as reference
+    
     // Check if user has recorded voice
     const hasVoiceRecording = voiceRecordingUri !== null
     
@@ -68,19 +74,10 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
     setLoading(true)
     
     try {
-      // Prepare login data
-      const loginData: any = {}
+      let result
       
-      if (hasEmailPassword) {
-        // Email and password login
-        loginData.email = email.trim().toLowerCase()
-        loginData.password = password.trim()
-      } else if (hasVoiceRecording) {
-        // Voice authentication (future enhancement)
-        // For now, use voice as indicator but require email
-        loginData.email = email.trim().toLowerCase()
-        loginData.voiceRecording = voiceRecordingUri
-        
+      if (hasVoiceRecording) {
+        // Voice authentication
         if (!email) {
           Alert.alert(
             translations.error[language],
@@ -91,26 +88,63 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
           setLoading(false)
           return
         }
-      }
-      
-      // Call login API
-      const result = await AuthService.login(loginData)
-      
-      console.log('Login successful:', result)
-      
-      // Upload voice recording if provided (for voice verification/training)
-      if (hasVoiceRecording && result.user) {
-        try {
-          const userId = result.user.id.toString()
-          await StorageApiService.uploadVoiceRecording(voiceRecordingUri!, userId)
-          console.log('Voice sample uploaded for authentication')
-        } catch (error) {
-          console.error('Voice upload error:', error)
-          // Don't fail login if voice upload fails
+        
+        console.log('Attempting voice authentication for:', email)
+        result = await AuthService.verifyVoice(email.trim().toLowerCase(), voiceRecordingUri)
+        
+        if (!result.verified) {
+          // Clean up failed voice recording
+          if (voiceRecordingUri) {
+            try {
+              await deleteAsync(voiceRecordingUri, { idempotent: true })
+              console.log('✓ Failed voice recording deleted from device')
+            } catch (cleanupError) {
+              console.log('Could not delete failed voice recording:', cleanupError)
+            }
+          }
+          
+          Alert.alert(
+            translations.error[language],
+            language === "en" 
+              ? `Voice authentication failed. Similarity: ${(result.voice_match?.similarity * 100).toFixed(1)}%` 
+              : `Échec de l'authentification vocale. Similarité: ${(result.voice_match?.similarity * 100).toFixed(1)}%`
+          )
+          setVoiceRecordingUri(null)
+          setLoading(false)
+          return
         }
+        
+        console.log('Voice authentication successful:', result)
+      } else if (hasEmailPassword) {
+        // Email and password login
+        const loginData = {
+          email: email.trim().toLowerCase(),
+          password: password.trim()
+        }
+        
+        result = await AuthService.login(loginData)
+        console.log('Email/password login successful:', result)
       }
+      
+      if (!result) {
+        throw new Error('Login failed')
+      }
+      
+      // Note: Login voice is NOT saved to MEGA - only used for verification
+      // The reference voice from registration is already stored
+      console.log('✓ Sign-in successful - NO voice upload to MEGA during login')
       
       setLoading(false)
+      
+      // Clean up voice recording file from device storage
+      if (voiceRecordingUri) {
+        try {
+          await deleteAsync(voiceRecordingUri, { idempotent: true })
+          console.log('✓ Temporary login voice recording deleted from device')
+        } catch (cleanupError) {
+          console.log('Could not delete temporary voice recording:', cleanupError)
+        }
+      }
       
       // Clear form
       setVoiceRecordingUri(null)
@@ -135,7 +169,18 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
       )
       
     } catch (error: any) {
+      // Clean up voice recording on error
+      if (voiceRecordingUri) {
+        try {
+          await deleteAsync(voiceRecordingUri, { idempotent: true })
+          console.log('✓ Voice recording deleted after error')
+        } catch (cleanupError) {
+          console.log('Could not delete voice recording:', cleanupError)
+        }
+      }
+      
       setLoading(false)
+      setVoiceRecordingUri(null)
       console.error('Login error:', error)
       Alert.alert(
         translations.error[language],
@@ -192,8 +237,39 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
       setRecordingDuration(0)
 
       if (uri) {
-        setVoiceRecordingUri(uri)
-        Alert.alert(translations.success[language], translations.voiceRecordedAlert[language])
+        // Validate voice recording file size using new FileSystem API
+        try {
+          const file = new File(uri)
+          const fileSize = await file.size
+          
+          // Check if file is too small (less than 10KB indicates empty/noise recording)
+          // A proper 3-5 second voice recording should be at least 10KB
+          if (fileSize < 10240) {
+            Alert.alert(
+              translations.error[language],
+              language === "en" 
+                ? `Voice recording is too short (${(fileSize / 1024).toFixed(1)} KB). Please speak clearly for at least 3 seconds.` 
+                : `L'enregistrement vocal est trop court (${(fileSize / 1024).toFixed(1)} KB). Veuillez parler clairement pendant au moins 3 secondes.`
+            )
+            // Delete the invalid file
+            await deleteAsync(uri, { idempotent: true })
+            setRecording(null)
+            return
+          }
+          
+          console.log(`✓ Voice recording validated: ${(fileSize / 1024).toFixed(2)} KB`)
+          
+          setVoiceRecordingUri(uri)
+          Alert.alert(translations.success[language], translations.voiceRecordedAlert[language])
+        } catch (validationError) {
+          console.error("Voice validation error:", validationError)
+          Alert.alert(
+            translations.error[language],
+            language === "en" 
+              ? "Failed to validate voice recording. Please try again." 
+              : "Échec de la validation de l'enregistrement vocal. Veuillez réessayer."
+          )
+        }
       }
       
       setRecording(null)

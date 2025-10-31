@@ -6,7 +6,8 @@ import { LinearGradient } from "expo-linear-gradient"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Audio } from "expo-av"
 import * as ImagePicker from "expo-image-picker"
-import * as FileSystem from "expo-file-system"
+import { deleteAsync } from "expo-file-system"
+import { File } from "expo-file-system/next"
 import { useLanguage } from "../../utils/LanguageContext"
 import { AuthService, StorageApiService } from "../../services"
 
@@ -37,9 +38,9 @@ export default function SignUpScreen({ navigation }: any) {
     takePhoto: { en: "Take Photo", fr: "Prendre une photo" },
     retakePhoto: { en: "Retake Photo", fr: "Reprendre" },
     voiceTitle: { en: "Voice Recording", fr: "Enregistrement vocal" },
-    voiceSubtitle: { en: "Record your voice for authentication", fr: "Enregistrez votre voix pour l'authentification" },
-    recording: { en: "Recording", fr: "Enregistrement" },
-    startRecording: { en: "Start Recording", fr: "Commencer" },
+    voiceSubtitle: { en: "Speak clearly for 5 seconds", fr: "Parlez clairement pendant 5 secondes" },
+    recording: { en: "Recording - SPEAK NOW", fr: "Enregistrement - PARLEZ" },
+    startRecording: { en: "Tap & Speak", fr: "Appuyez et Parlez" },
     stopRecording: { en: "Stop Recording", fr: "Arrêter" },
     voiceRecorded: { en: "Voice Recorded", fr: "Voix enregistrée" },
     signUpButton: { en: "Create Account", fr: "Créer le compte" },
@@ -137,8 +138,39 @@ export default function SignUpScreen({ navigation }: any) {
       setRecordingDuration(0)
 
       if (uri) {
-        setVoiceRecordingUri(uri)
-        Alert.alert(translations.success[language], translations.voiceRecordedAlert[language])
+        // Validate voice recording file size using new FileSystem API
+        try {
+          const file = new File(uri)
+          const fileSize = await file.size
+          
+          // Check if file is too small (less than 10KB indicates empty/noise recording)
+          // A proper 3-5 second voice recording should be at least 10KB
+          if (fileSize < 10240) {
+            Alert.alert(
+              translations.error[language],
+              language === "en" 
+                ? `Voice recording is too short (${(fileSize / 1024).toFixed(1)} KB). Please speak clearly for at least 3 seconds.` 
+                : `L'enregistrement vocal est trop court (${(fileSize / 1024).toFixed(1)} KB). Veuillez parler clairement pendant au moins 3 secondes.`
+            )
+            // Delete the invalid file
+            await deleteAsync(uri, { idempotent: true })
+            setRecording(null)
+            return
+          }
+          
+          console.log(`✓ Voice recording validated: ${(fileSize / 1024).toFixed(2)} KB`)
+          
+          setVoiceRecordingUri(uri)
+          Alert.alert(translations.success[language], translations.voiceRecordedAlert[language])
+        } catch (validationError) {
+          console.error("Voice validation error:", validationError)
+          Alert.alert(
+            translations.error[language],
+            language === "en" 
+              ? "Failed to validate voice recording. Please try again." 
+              : "Échec de la validation de l'enregistrement vocal. Veuillez réessayer."
+          )
+        }
       }
       
       setRecording(null)
@@ -179,11 +211,12 @@ export default function SignUpScreen({ navigation }: any) {
     setLoading(true)
     
     try {
-      // Step 1: Register user account
+      // Step 1: Register user account WITH voice validation
       const registerResult = await AuthService.register({
         email: email.trim().toLowerCase(),
         username: fullName.trim(),
         cin: cin.trim(),
+        voiceRecording: voiceRecordingUri, // NEW: Send voice for validation during registration
       })
 
       console.log('User registered:', registerResult)
@@ -199,11 +232,8 @@ export default function SignUpScreen({ navigation }: any) {
           
           // Clean up temporary face image file from device storage
           try {
-            const fileInfo = await FileSystem.getInfoAsync(faceImage)
-            if (fileInfo.exists) {
-              await FileSystem.deleteAsync(faceImage, { idempotent: true })
-              console.log('Temporary face image deleted from device')
-            }
+            await deleteAsync(faceImage, { idempotent: true })
+            console.log('Temporary face image deleted from device')
           } catch (cleanupError) {
             console.log('Could not delete temporary face image:', cleanupError)
           }
@@ -221,11 +251,8 @@ export default function SignUpScreen({ navigation }: any) {
           
           // Clean up temporary voice recording file from device storage
           try {
-            const fileInfo = await FileSystem.getInfoAsync(voiceRecordingUri)
-            if (fileInfo.exists) {
-              await FileSystem.deleteAsync(voiceRecordingUri, { idempotent: true })
-              console.log('Temporary voice recording deleted from device')
-            }
+            await deleteAsync(voiceRecordingUri, { idempotent: true })
+            console.log('Temporary voice recording deleted from device')
           } catch (cleanupError) {
             console.log('Could not delete temporary voice recording:', cleanupError)
           }
