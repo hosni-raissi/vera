@@ -6,7 +6,9 @@ import { LinearGradient } from "expo-linear-gradient"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Audio } from "expo-av"
 import * as ImagePicker from "expo-image-picker"
+import * as FileSystem from "expo-file-system"
 import { useLanguage } from "../../utils/LanguageContext"
+import { AuthService, StorageApiService } from "../../services"
 
 export default function SignUpScreen({ navigation }: any) {
   const insets = useSafeAreaInsets()
@@ -151,6 +153,7 @@ export default function SignUpScreen({ navigation }: any) {
   }
 
   const handleSignUp = async () => {
+    // Validate required fields
     if (!fullName.trim() || !email.trim() || !cin.trim()) {
       Alert.alert(
         translations.error[language],
@@ -174,17 +177,89 @@ export default function SignUpScreen({ navigation }: any) {
     }
     
     setLoading(true)
-    // Simulate API call - send fullName, email, cin, faceImage, voiceRecordingUri to backend
-    setTimeout(() => {
+    
+    try {
+      // Step 1: Register user account
+      const registerResult = await AuthService.register({
+        email: email.trim().toLowerCase(),
+        username: fullName.trim(),
+        cin: cin.trim(),
+      })
+
+      console.log('User registered:', registerResult)
+
+      // Step 2: Upload biometric data to user's MEGA folder
+      if (registerResult.user) {
+        const userId = registerResult.user.id.toString()
+        
+        // Upload face image
+        try {
+          await StorageApiService.uploadFaceImage(faceImage, userId)
+          console.log('Face image uploaded successfully')
+          
+          // Clean up temporary face image file from device storage
+          try {
+            const fileInfo = await FileSystem.getInfoAsync(faceImage)
+            if (fileInfo.exists) {
+              await FileSystem.deleteAsync(faceImage, { idempotent: true })
+              console.log('Temporary face image deleted from device')
+            }
+          } catch (cleanupError) {
+            console.log('Could not delete temporary face image:', cleanupError)
+          }
+          
+          setFaceImage(null)
+        } catch (error) {
+          console.error('Face image upload error:', error)
+          // Continue even if face upload fails
+        }
+
+        // Upload voice recording
+        try {
+          await StorageApiService.uploadVoiceRecording(voiceRecordingUri, userId)
+          console.log('Voice recording uploaded successfully')
+          
+          // Clean up temporary voice recording file from device storage
+          try {
+            const fileInfo = await FileSystem.getInfoAsync(voiceRecordingUri)
+            if (fileInfo.exists) {
+              await FileSystem.deleteAsync(voiceRecordingUri, { idempotent: true })
+              console.log('Temporary voice recording deleted from device')
+            }
+          } catch (cleanupError) {
+            console.log('Could not delete temporary voice recording:', cleanupError)
+          }
+          
+          setVoiceRecordingUri(null)
+        } catch (error) {
+          console.error('Voice recording upload error:', error)
+          // Continue even if voice upload fails
+        }
+      }
+
       setLoading(false)
+      
+      // Success!
       Alert.alert(
         translations.success[language], 
         language === "en" 
-          ? "Account created! Your password has been sent to your email." 
-          : "Compte créé ! Votre mot de passe a été envoyé à votre e-mail.",
-        [{ text: "OK", onPress: () => navigation.navigate("SignIn") }]
+          ? `Account created successfully!\nYour data is stored securely in MEGA.\nYou can now sign in.` 
+          : `Compte créé avec succès !\nVos données sont stockées en toute sécurité dans MEGA.\nVous pouvez maintenant vous connecter.`,
+        [{ 
+          text: "OK", 
+          onPress: () => navigation.navigate("SignIn") 
+        }]
       )
-    }, 1500)
+    } catch (error: any) {
+      setLoading(false)
+      console.error('Registration error:', error)
+      Alert.alert(
+        translations.error[language],
+        error.message || (language === "en" 
+          ? "Failed to create account. Please try again." 
+          : "Échec de la création du compte. Veuillez réessayer.")
+      )
+    }
   }
 
   return (

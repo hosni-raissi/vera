@@ -6,6 +6,7 @@ import { LinearGradient } from "expo-linear-gradient"
 import { Audio } from "expo-av"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { useLanguage } from "../../utils/LanguageContext"
+import { AuthService, StorageApiService } from "../../services"
 
 export default function SignInScreen({ navigation, onSignIn }: any) {
   const insets = useSafeAreaInsets()
@@ -66,18 +67,83 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
     
     setLoading(true)
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Prepare login data
+      const loginData: any = {}
+      
+      if (hasEmailPassword) {
+        // Email and password login
+        loginData.email = email.trim().toLowerCase()
+        loginData.password = password.trim()
+      } else if (hasVoiceRecording) {
+        // Voice authentication (future enhancement)
+        // For now, use voice as indicator but require email
+        loginData.email = email.trim().toLowerCase()
+        loginData.voiceRecording = voiceRecordingUri
+        
+        if (!email) {
+          Alert.alert(
+            translations.error[language],
+            language === "en" 
+              ? "Please enter your email for voice authentication" 
+              : "Veuillez entrer votre e-mail pour l'authentification vocale"
+          )
+          setLoading(false)
+          return
+        }
+      }
+      
+      // Call login API
+      const result = await AuthService.login(loginData)
+      
+      console.log('Login successful:', result)
+      
+      // Upload voice recording if provided (for voice verification/training)
+      if (hasVoiceRecording && result.user) {
+        try {
+          const userId = result.user.id.toString()
+          await StorageApiService.uploadVoiceRecording(voiceRecordingUri!, userId)
+          console.log('Voice sample uploaded for authentication')
+        } catch (error) {
+          console.error('Voice upload error:', error)
+          // Don't fail login if voice upload fails
+        }
+      }
+      
       setLoading(false)
-      if (hasVoiceRecording) {
-        // Here you would send voiceRecordingUri to your backend
-        setVoiceRecordingUri(null) // Clear after successful sign in
-      }
-      // Navigate to home after successful sign in
-      if (onSignIn) {
-        onSignIn()
-      }
-    }, 1000)
+      
+      // Clear form
+      setVoiceRecordingUri(null)
+      setEmail('')
+      setPassword('')
+      
+      // Show success message
+      Alert.alert(
+        translations.success[language],
+        language === "en" 
+          ? `Welcome back, ${result.user.username}!` 
+          : `Bienvenue, ${result.user.username} !`,
+        [{ 
+          text: "OK", 
+          onPress: () => {
+            // Navigate to home after successful sign in
+            if (onSignIn) {
+              onSignIn()
+            }
+          }
+        }]
+      )
+      
+    } catch (error: any) {
+      setLoading(false)
+      console.error('Login error:', error)
+      Alert.alert(
+        translations.error[language],
+        error.message || (language === "en" 
+          ? "Failed to sign in. Please check your credentials." 
+          : "Échec de la connexion. Veuillez vérifier vos identifiants.")
+      )
+    }
   }
 
   const startRecording = async () => {
