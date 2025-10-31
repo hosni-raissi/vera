@@ -115,6 +115,7 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
   const insets = useSafeAreaInsets()
   const { language, setLanguage } = useLanguage()
   const [stars] = useState(generateStars(80))
+  const shootingStarAnim = useRef(new Animated.Value(-100)).current
   const [showChangeModal, setShowChangeModal] = useState(false)
   const [changeType, setChangeType] = useState<"email" | "password" | "photo" | "voice" | null>(null)
   const [email, setEmail] = useState("")
@@ -128,10 +129,8 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
 
   const handleLogout = () => {
     onLogout()
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "SignIn" }],
-    })
+    // Simply go back, the App.tsx will handle showing auth screen
+    navigation.goBack()
   }
 
   const text = {
@@ -232,6 +231,21 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
   }
 
   const t = text[language]
+
+  // Shooting star animation
+  useEffect(() => {
+    const shootingStar = () => {
+      shootingStarAnim.setValue(-100)
+      Animated.timing(shootingStarAnim, {
+        toValue: height + 100,
+        duration: 2000,
+        useNativeDriver: true,
+      }).start(() => {
+        setTimeout(shootingStar, Math.random() * 8000 + 5000)
+      })
+    }
+    shootingStar()
+  }, [])
 
   const handlePickPhoto = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -334,21 +348,31 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
 
   return (
     <View style={styles.container}>
-      {/* Notch Area Background */}
-      <View style={[styles.notchBackground, { height: insets.top }]} />
-      
+      {/* Animated Space Background */}
       <LinearGradient
-        colors={["#0f172a", "#1e293b", "#0f172a"]}
+        colors={["#0f172a", "#1e3a8a", "#0f172a"]}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-      />
+      >
+        {/* Stars */}
+        {stars.map((star) => (
+          <Star key={star.id} star={star} />
+        ))}
 
-      {/* Animated Stars Background */}
-      {stars.map((star) => (
-        <Star key={star.id} star={star} />
-      ))}
-      <ShootingStar />
+        {/* Shooting Star */}
+        <Animated.View
+          style={[
+            styles.shootingStar,
+            {
+              transform: [
+                { translateY: shootingStarAnim },
+                { translateX: shootingStarAnim },
+              ],
+            },
+          ]}
+        />
+      </LinearGradient>
 
       {/* Fixed Header */}
       <View style={[styles.fixedHeader, { paddingTop: insets.top + 10 }]}>

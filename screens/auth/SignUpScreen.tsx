@@ -200,120 +200,132 @@ export default function SignUpScreen({ navigation }: any) {
         style={{ paddingTop: insets.top }}
       >
         <View style={styles.header}>
+          <Text style={styles.titleIcon}>🚀</Text>
           <Text style={styles.title}>{translations.title[language]}</Text>
           <Text style={styles.subtitle}>{translations.subtitle[language]}</Text>
         </View>
 
         <View style={styles.form}>
-          {/* Full Name */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>{translations.nameLabel[language]} *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={translations.namePlaceholder[language]}
-              placeholderTextColor="#64748b"
-              value={fullName}
-              onChangeText={setFullName}
-              editable={!loading}
-            />
-          </View>
-
-          {/* Email */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>{translations.emailLabel[language]} *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={translations.emailPlaceholder[language]}
-              placeholderTextColor="#64748b"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!loading}
-            />
-          </View>
-
-          {/* CIN */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>{translations.cinLabel[language]} *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={translations.cinPlaceholder[language]}
-              placeholderTextColor="#64748b"
-              value={cin}
-              onChangeText={setCin}
-              editable={!loading}
-            />
-          </View>
-
-          {/* Face Photo Capture */}
-          <View style={styles.captureSection}>
-            <Text style={styles.sectionTitle}>{translations.faceTitle[language]} *</Text>
-            <Text style={styles.sectionSubtitle}>
-              {translations.faceSubtitle[language]}
-            </Text>
+          {/* Basic Info Block */}
+          <View style={styles.infoBlock}>
+            <View style={styles.blockHeader}>
+              <Text style={styles.blockIcon}>📝</Text>
+              <Text style={styles.blockTitle}>{language === "en" ? "Basic Information" : "Informations de base"}</Text>
+            </View>
             
-            {faceImage ? (
-              <View style={styles.previewContainer}>
-                <Image source={{ uri: faceImage }} style={styles.faceImage} />
+            <View style={styles.inputGroup}>
+              <TextInput
+                style={styles.input}
+                placeholder={translations.namePlaceholder[language]}
+                placeholderTextColor="#64748b"
+                value={fullName}
+                onChangeText={setFullName}
+                editable={!loading}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <TextInput
+                style={styles.input}
+                placeholder={translations.emailPlaceholder[language]}
+                placeholderTextColor="#64748b"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                editable={!loading}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <TextInput
+                style={styles.input}
+                placeholder={translations.cinPlaceholder[language]}
+                placeholderTextColor="#64748b"
+                value={cin}
+                onChangeText={setCin}
+                editable={!loading}
+              />
+            </View>
+          </View>
+
+          {/* Biometric Block */}
+          <View style={styles.biometricBlock}>
+            <View style={styles.blockHeader}>
+              <Text style={styles.blockIcon}>🔐</Text>
+              <Text style={styles.blockTitle}>{language === "en" ? "Biometric Authentication" : "Authentification biométrique"}</Text>
+            </View>
+
+            {/* Face Photo */}
+            <View style={styles.biometricItem}>
+              <View style={styles.biometricHeader}>
+                <Text style={styles.biometricIcon}>📷</Text>
+                <View style={styles.biometricText}>
+                  <Text style={styles.biometricTitle}>{translations.faceTitle[language]}</Text>
+                  <Text style={styles.biometricSubtitle}>{translations.faceSubtitle[language]}</Text>
+                </View>
+              </View>
+              
+              {faceImage ? (
+                <View style={styles.capturedPreview}>
+                  <Image source={{ uri: faceImage }} style={styles.faceImage} />
+                  <TouchableOpacity
+                    style={styles.retakeButton}
+                    onPress={takeFacePhoto}
+                    disabled={loading}
+                  >
+                    <Text style={styles.retakeButtonText}>{translations.retakePhoto[language]}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <TouchableOpacity
-                  style={styles.retakeButton}
+                  style={[styles.captureButton, loading && styles.buttonDisabled]}
                   onPress={takeFacePhoto}
                   disabled={loading}
                 >
-                  <Text style={styles.retakeButtonText}>{translations.retakePhoto[language]}</Text>
+                  <Text style={styles.captureButtonText}>{translations.takePhoto[language]}</Text>
                 </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Voice Recording */}
+            <View style={[styles.biometricItem, { borderBottomWidth: 0 }]}>
+              <View style={styles.biometricHeader}>
+                <Text style={styles.biometricIcon}>🎤</Text>
+                <View style={styles.biometricText}>
+                  <Text style={styles.biometricTitle}>{translations.voiceTitle[language]}</Text>
+                  <Text style={styles.biometricSubtitle}>
+                    {isRecording
+                      ? `${translations.recording[language]}... ${recordingDuration}s`
+                      : voiceRecordingUri
+                      ? `✓ ${translations.voiceRecorded[language]}`
+                      : translations.voiceSubtitle[language]}
+                  </Text>
+                </View>
               </View>
-            ) : (
+
               <TouchableOpacity
-                style={[styles.captureButton, loading && styles.buttonDisabled]}
-                onPress={takeFacePhoto}
+                style={[
+                  styles.voiceRecordButton,
+                  isRecording && styles.voiceRecordButtonActive,
+                  voiceRecordingUri && styles.voiceRecordButtonReady,
+                  loading && styles.buttonDisabled,
+                ]}
+                onPress={isRecording ? stopRecording : startRecording}
                 disabled={loading}
               >
-                <Text style={styles.captureButtonIcon}>📷</Text>
-                <Text style={styles.captureButtonText}>{translations.takePhoto[language]}</Text>
+                <Text style={styles.voiceRecordIcon}>
+                  {isRecording ? "⏸" : voiceRecordingUri ? "✓" : "●"}
+                </Text>
+                <Text style={styles.voiceRecordText}>
+                  {isRecording 
+                    ? translations.stopRecording[language] 
+                    : voiceRecordingUri 
+                    ? (language === "en" ? "Voice Ready" : "Voix prête")
+                    : (language === "en" ? "Tap to Record" : "Appuyez pour enregistrer")}
+                </Text>
               </TouchableOpacity>
-            )}
-          </View>
-
-          {/* Voice Recording */}
-          <View style={styles.captureSection}>
-            <Text style={styles.sectionTitle}>{translations.voiceTitle[language]} *</Text>
-            <Text style={styles.sectionSubtitle}>
-              {isRecording
-                ? `${translations.recording[language]}... ${recordingDuration}s`
-                : voiceRecordingUri
-                ? `✓ ${translations.voiceRecorded[language]}!`
-                : translations.voiceSubtitle[language]}
-            </Text>
-
-            <TouchableOpacity
-              style={[
-                styles.voiceButton,
-                isRecording && styles.voiceButtonRecording,
-                voiceRecordingUri && styles.voiceButtonReady,
-                loading && styles.buttonDisabled,
-              ]}
-              onPress={isRecording ? stopRecording : startRecording}
-              disabled={loading}
-            >
-              <Text style={styles.voiceButtonIcon}>
-                {isRecording ? "⏹" : voiceRecordingUri ? "✓" : "🎤"}
-              </Text>
-              <Text style={styles.voiceButtonText}>
-                {isRecording 
-                  ? translations.stopRecording[language] 
-                  : voiceRecordingUri 
-                  ? (language === "en" ? "Re-record" : "Réenregistrer")
-                  : translations.startRecording[language]}
-              </Text>
-            </TouchableOpacity>
-            
-            <Text style={styles.noteText}>
-              {language === "en" 
-                ? "💡 Speak clearly for 3-5 seconds" 
-                : "💡 Parlez clairement pendant 3 à 5 secondes"}
-            </Text>
+            </View>
           </View>
 
           {/* Password Note */}
@@ -362,15 +374,21 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     alignItems: "center",
   },
+  titleIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
   title: {
     fontSize: 32,
     fontWeight: "bold",
     color: "#ffffff",
     marginBottom: 8,
+    textAlign: "center",
   },
   subtitle: {
     fontSize: 16,
     color: "#0ea5e9",
+    textAlign: "center",
   },
   form: {
     gap: 16,
@@ -393,48 +411,115 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 16,
   },
-  captureSection: {
-    backgroundColor: "#1e293b",
-    borderRadius: 12,
-    padding: 16,
+  infoBlock: {
+    backgroundColor: "rgba(14, 165, 233, 0.1)",
+    borderWidth: 2,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderRadius: 16,
+    padding: 20,
     gap: 12,
-    marginTop: 8,
   },
-  sectionTitle: {
-    fontSize: 16,
+  biometricBlock: {
+    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    borderWidth: 2,
+    borderColor: "rgba(16, 185, 129, 0.3)",
+    borderRadius: 16,
+    padding: 20,
+    gap: 16,
+  },
+  blockHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  blockIcon: {
+    fontSize: 28,
+  },
+  blockTitle: {
+    fontSize: 18,
     fontWeight: "bold",
     color: "#ffffff",
   },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: "#94a3b8",
-    lineHeight: 20,
+  biometricItem: {
+    gap: 12,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(148, 163, 184, 0.2)",
   },
-  previewContainer: {
+  biometricHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  biometricIcon: {
+    fontSize: 24,
+  },
+  biometricText: {
+    flex: 1,
+  },
+  biometricTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ffffff",
+    marginBottom: 4,
+  },
+  biometricSubtitle: {
+    fontSize: 13,
+    color: "#94a3b8",
+    lineHeight: 18,
+  },
+  capturedPreview: {
     alignItems: "center",
     gap: 12,
   },
   faceImage: {
-    width: 150,
-    height: 150,
-    borderRadius: 75,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     borderWidth: 3,
     borderColor: "#10b981",
   },
   captureButton: {
-    backgroundColor: "#0ea5e9",
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 2,
+    borderColor: "#0ea5e9",
     borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
     alignItems: "center",
-    gap: 8,
-  },
-  captureButtonIcon: {
-    fontSize: 32,
   },
   captureButtonText: {
     color: "#ffffff",
-    fontSize: 16,
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  voiceRecordButton: {
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 2,
+    borderColor: "#0ea5e9",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  voiceRecordButtonActive: {
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderColor: "#10b981",
+  },
+  voiceRecordButtonReady: {
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderColor: "#10b981",
+  },
+  voiceRecordIcon: {
+    fontSize: 24,
+    color: "#0ea5e9",
+  },
+  voiceRecordText: {
+    color: "#ffffff",
+    fontSize: 15,
     fontWeight: "600",
   },
   retakeButton: {

@@ -157,8 +157,14 @@ export default function HomeScreen({ navigation, botVariant = "bot" }: any) {
   useEffect(() => {
     return () => {
       if (recording) {
-        recording.stopAndUnloadAsync().catch((err) => {
-          console.log("Error cleaning up recording on unmount:", err)
+        recording.getStatusAsync().then((status) => {
+          if (status.canRecord || status.isRecording) {
+            recording.stopAndUnloadAsync().catch((err) => {
+              console.log("Error cleaning up recording on unmount:", err)
+            })
+          }
+        }).catch(() => {
+          // Recording already unloaded, ignore
         })
       }
     }

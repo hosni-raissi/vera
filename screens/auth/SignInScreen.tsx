@@ -151,95 +151,88 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
         style={{ paddingTop: insets.top }}
       >
         <View style={styles.header}>
+          <Text style={styles.titleIcon}>👋</Text>
           <Text style={styles.title}>{translations.title[language]}</Text>
           <Text style={styles.subtitle}>{translations.subtitle[language]}</Text>
         </View>
 
         <View style={styles.form}>
-          {/* Voice Authentication Section */}
-          <View style={styles.voiceContainer}>
-            <Text style={styles.voiceTitle}>{translations.voiceTitle[language]}</Text>
-            <Text style={styles.voiceSubtitle}>
-              {isRecording
-                ? `${translations.recording[language]}... ${recordingDuration}s`
-                : voiceRecordingUri
-                ? translations.voiceRecorded[language]
-                : translations.voiceSubtitle[language]}
-            </Text>
+          {/* Voice Authentication Block */}
+          <View style={styles.voiceBlock}>
+            <View style={styles.voiceHeader}>
+              <Text style={styles.voiceIcon}>🎤</Text>
+              <View style={styles.voiceHeaderText}>
+                <Text style={styles.voiceTitle}>{translations.voiceTitle[language]}</Text>
+                <Text style={styles.voiceSubtitle}>{translations.voiceSubtitle[language]}</Text>
+              </View>
+            </View>
 
             <TouchableOpacity
               style={[
-                styles.voiceButton,
-                isRecording && styles.voiceButtonRecording,
-                voiceRecordingUri && styles.voiceButtonReady,
+                styles.voiceRecordButton,
+                isRecording && styles.voiceRecordButtonActive,
+                voiceRecordingUri && styles.voiceRecordButtonReady,
                 loading && styles.buttonDisabled,
               ]}
               onPress={isRecording ? stopRecording : startRecording}
               disabled={loading}
             >
-              <View style={styles.voiceButtonInner}>
-                <Text style={styles.voiceButtonIcon}>
-                  {isRecording ? "⏹" : voiceRecordingUri ? "✓" : "🎤"}
-                </Text>
-                <Text style={styles.voiceButtonText}>
-                  {isRecording 
-                    ? (language === "en" ? "Stop Recording" : "Arrêter") 
-                    : voiceRecordingUri 
-                    ? (language === "en" ? "Voice Ready" : "Voix prête") 
-                    : (language === "en" ? "Record Voice" : "Enregistrer")}
-                </Text>
-              </View>
+              <Text style={styles.voiceRecordIcon}>
+                {isRecording ? "⏸" : voiceRecordingUri ? "✓" : "●"}
+              </Text>
+              <Text style={styles.voiceRecordText}>
+                {isRecording
+                  ? `${translations.recording[language]}... ${recordingDuration}s`
+                  : voiceRecordingUri
+                  ? translations.voiceRecorded[language]
+                  : (language === "en" ? "Tap to Record" : "Appuyez pour enregistrer")}
+              </Text>
             </TouchableOpacity>
 
-            <Text style={styles.voiceNote}>
-              {language === "en" 
-                ? "💡 Speak clearly for 3-5 seconds for best results" 
-                : "💡 Parlez clairement pendant 3 à 5 secondes"}
-            </Text>
           </View>
 
           {/* Divider */}
           <View style={styles.dividerContainer}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>{language === "en" ? "OR" : "OU"}</Text>
+            <Text style={styles.dividerText}>{language === "en" ? "OR USE EMAIL" : "OU UTILISER EMAIL"}</Text>
             <View style={styles.dividerLine} />
           </View>
 
-          {/* Email & Password Section */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>{translations.emailLabel[language]}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={translations.emailPlaceholder[language]}
-              placeholderTextColor="#64748b"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!loading}
-            />
-          </View>
+          {/* Email & Password Section - Secondary Option */}
+          <View style={styles.alternativeBlock}>
+            <View style={styles.inputGroup}>
+              <TextInput
+                style={styles.input}
+                placeholder={translations.emailPlaceholder[language]}
+                placeholderTextColor="#64748b"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                editable={!loading}
+              />
+            </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>{translations.passwordLabel[language]}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={translations.passwordPlaceholder[language]}
-              placeholderTextColor="#64748b"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading}
-            />
+            <View style={styles.inputGroup}>
+              <TextInput
+                style={styles.input}
+                placeholder={translations.passwordPlaceholder[language]}
+                placeholderTextColor="#64748b"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                editable={!loading}
+              />
+            </View>
           </View>
 
           {/* Single Sign In Button */}
           <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+            style={[styles.primaryButton, loading && styles.buttonDisabled]}
             onPress={handleSignIn}
             disabled={loading}
           >
-            <Text style={styles.buttonText}>
+            <Text style={styles.primaryButtonText}>
               {loading ? translations.signingIn[language] : translations.signInButton[language]}
             </Text>
           </TouchableOpacity>
@@ -270,16 +263,21 @@ const styles = StyleSheet.create({
     marginBottom: 40,
     alignItems: "center",
   },
+  titleIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
   title: {
     fontSize: 32,
     fontWeight: "bold",
     color: "#ffffff",
-    marginTop: 8,
     marginBottom: 8,
+    textAlign: "center",
   },
   subtitle: {
     fontSize: 16,
     color: "#0ea5e9",
+    textAlign: "center",
   },
   form: {
     gap: 20,
@@ -333,57 +331,91 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     paddingHorizontal: 12,
   },
-  voiceContainer: {
+  voiceBlock: {
+    backgroundColor: "rgba(14, 165, 233, 0.1)",
+    borderWidth: 2,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderRadius: 20,
+    padding: 24,
+    gap: 20,
+  },
+  voiceHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    gap: 15,
+    gap: 16,
+  },
+  voiceIcon: {
+    fontSize: 40,
+  },
+  voiceHeaderText: {
+    flex: 1,
   },
   voiceTitle: {
     fontSize: 20,
     fontWeight: "bold",
     color: "#ffffff",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   voiceSubtitle: {
-    fontSize: 14,
+    fontSize: 13,
     color: "#94a3b8",
-    textAlign: "center",
-    paddingHorizontal: 20,
-    lineHeight: 20,
+    lineHeight: 18,
   },
-  voiceButton: {
-    backgroundColor: "#0ea5e9",
+  voiceRecordButton: {
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 2,
+    borderColor: "#0ea5e9",
     borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    alignItems: "center",
-    marginTop: 10,
-    minWidth: 200,
-  },
-  voiceButtonRecording: {
-    backgroundColor: "#ef4444",
-  },
-  voiceButtonReady: {
-    backgroundColor: "#10b981",
-  },
-  voiceButtonInner: {
+    paddingVertical: 24,
+    paddingHorizontal: 20,
     alignItems: "center",
     gap: 12,
   },
-  voiceButtonIcon: {
-    fontSize: 48,
+  voiceRecordButtonActive: {
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderColor: "#10b981",
   },
-  voiceButtonText: {
+  voiceRecordButtonReady: {
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderColor: "#10b981",
+  },
+  voiceRecordIcon: {
+    fontSize: 32,
+    color: "#0ea5e9",
+  },
+  voiceRecordText: {
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "600",
   },
-  voiceNote: {
-    fontSize: 12,
-    color: "#64748b",
-    textAlign: "center",
-    fontStyle: "italic",
-    marginTop: 10,
+  primaryButton: {
+    backgroundColor: "#0ea5e9",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  alternativeBlock: {
+    gap: 12,
+    opacity: 0.7,
+  },
+  secondaryButton: {
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 1,
+    borderColor: "#0ea5e9",
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  secondaryButtonText: {
+    color: "#0ea5e9",
+    fontSize: 16,
+    fontWeight: "600",
   },
   footer: {
     flexDirection: "row",
