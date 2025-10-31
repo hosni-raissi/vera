@@ -17,29 +17,29 @@ export default function InteractionScreen({ navigation, content }: InteractionSc
 
   return (
     <View style={styles.container}>
+      {/* Notch Area Background */}
+      <View style={[styles.notchBackground, { height: insets.top }]} />
+      
       <LinearGradient
         colors={["#0f172a", "#1e3a8a", "#0f172a"]}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
-      <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingTop: insets.top + 20,
-            paddingBottom: insets.bottom + 20,
-          },
-        ]}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>{content?.title || "Interaction"}</Text>
-        </View>
 
+      {/* Fixed Header */}
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>{content?.title || "Interaction"}</Text>
+      </View>
+
+      {/* Scrollable Content */}
+      <ScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top}]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Content Area */}
         <View style={styles.contentContainer}>
           <View style={styles.placeholderContainer}>
@@ -103,9 +103,26 @@ export default function InteractionScreen({ navigation, content }: InteractionSc
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#0f172a",
+  },
+  notchBackground: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#0f172a",
+    zIndex: 1,
+  },
+  fixedHeader: {
+    backgroundColor: "transparent",
+    paddingBottom: 15,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingBottom: 40,
   },
   header: {
     flexDirection: "row",

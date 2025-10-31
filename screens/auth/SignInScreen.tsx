@@ -5,9 +5,11 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Alert 
 import { LinearGradient } from "expo-linear-gradient"
 import { Audio } from "expo-av"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
+import { useLanguage } from "../../utils/LanguageContext"
 
 export default function SignInScreen({ navigation, onSignIn }: any) {
   const insets = useSafeAreaInsets()
+  const { language } = useLanguage()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -15,6 +17,32 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [voiceRecordingUri, setVoiceRecordingUri] = useState<string | null>(null)
+
+  const translations = {
+    title: { en: "Welcome Back", fr: "Bon Retour" },
+    subtitle: { en: "Sign in to continue", fr: "Connectez-vous pour continuer" },
+    emailLabel: { en: "Email", fr: "E-mail" },
+    emailPlaceholder: { en: "Enter your email", fr: "Entrez votre e-mail" },
+    passwordLabel: { en: "Password", fr: "Mot de passe" },
+    passwordPlaceholder: { en: "Enter your password", fr: "Entrez votre mot de passe" },
+    voiceTitle: { en: "Voice Authentication", fr: "Authentification Vocale" },
+    voiceSubtitle: { en: "Record your voice for secure login", fr: "Enregistrez votre voix pour une connexion sécurisée" },
+    recording: { en: "Recording", fr: "Enregistrement" },
+    tapToRecord: { en: "Tap to record (5s)", fr: "Appuyez pour enregistrer (5s)" },
+    voiceRecorded: { en: "✓ Voice recorded! Press Sign In button below", fr: "✓ Voix enregistrée ! Appuyez sur le bouton ci-dessous" },
+    signInButton: { en: "Sign In", fr: "Se connecter" },
+    signingIn: { en: "Signing in...", fr: "Connexion..." },
+    noAccount: { en: "Don't have an account?", fr: "Pas encore de compte ?" },
+    signUpLink: { en: "Sign Up", fr: "S'inscrire" },
+    success: { en: "Success", fr: "Succès" },
+    voiceRecordedAlert: { en: "Voice recorded! Press Sign In to authenticate.", fr: "Voix enregistrée ! Appuyez sur Se connecter pour vous authentifier." },
+    error: { en: "Error", fr: "Erreur" },
+    recordingFailed: { en: "Failed to start recording. Please check microphone permissions.", fr: "Échec de l'enregistrement. Vérifiez les autorisations du microphone." },
+    recordVoiceOrEmail: { en: "Please record your voice or enter email and password", fr: "Veuillez enregistrer votre voix ou entrer votre e-mail et mot de passe" },
+    permissionRequired: { en: "Permission required", fr: "Permission requise" },
+    microphonePermission: { en: "Please grant microphone permission to use voice authentication", fr: "Veuillez autoriser le microphone pour l'authentification vocale" },
+    processVoiceFailed: { en: "Failed to process voice recording", fr: "Échec du traitement de l'enregistrement vocal" },
+  }
 
   useEffect(() => {
     return () => {
@@ -32,7 +60,7 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
     const hasEmailPassword = email && password
     
     if (!hasVoiceRecording && !hasEmailPassword) {
-      Alert.alert("Error", "Please record your voice or enter email and password")
+      Alert.alert(translations.error[language], translations.recordVoiceOrEmail[language])
       return
     }
     
@@ -56,7 +84,7 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
     try {
       const { status } = await Audio.requestPermissionsAsync()
       if (status !== "granted") {
-        Alert.alert("Permission required", "Please grant microphone permission to use voice authentication")
+        Alert.alert(translations.permissionRequired[language], translations.microphonePermission[language])
         return
       }
 
@@ -83,7 +111,7 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
         stopRecording()
       }, 5000)
     } catch (err) {
-      Alert.alert("Error", "Failed to start recording")
+      Alert.alert(translations.error[language], translations.recordingFailed[language])
       console.error("Failed to start recording", err)
     }
   }
@@ -99,12 +127,12 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
 
       if (uri) {
         setVoiceRecordingUri(uri)
-        Alert.alert("Success", "Voice recorded! Press Sign In to authenticate.")
+        Alert.alert(translations.success[language], translations.voiceRecordedAlert[language])
       }
       
       setRecording(null)
     } catch (err) {
-      Alert.alert("Error", "Failed to process voice recording")
+      Alert.alert(translations.error[language], translations.processVoiceFailed[language])
       console.error("Failed to stop recording", err)
       setRecording(null)
     }
@@ -117,27 +145,26 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <ScrollView 
-        contentContainerStyle={[
-          styles.scrollContent, 
-          { paddingTop: insets.top, paddingBottom: insets.bottom }
-        ]}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        contentInsetAdjustmentBehavior="never"
+        style={{ paddingTop: insets.top }}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Welcome to Vera</Text>
-          <Text style={styles.subtitle}>Your AI-powered life assistant</Text>
+          <Text style={styles.title}>{translations.title[language]}</Text>
+          <Text style={styles.subtitle}>{translations.subtitle[language]}</Text>
         </View>
 
         <View style={styles.form}>
           {/* Voice Authentication Section */}
           <View style={styles.voiceContainer}>
-            <Text style={styles.voiceTitle}>Voice Authentication</Text>
+            <Text style={styles.voiceTitle}>{translations.voiceTitle[language]}</Text>
             <Text style={styles.voiceSubtitle}>
               {isRecording
-                ? `Recording... ${recordingDuration}s`
+                ? `${translations.recording[language]}... ${recordingDuration}s`
                 : voiceRecordingUri
-                ? "✓ Voice recorded! Press Sign In button below"
-                : "Press the button to record your voice"}
+                ? translations.voiceRecorded[language]
+                : translations.voiceSubtitle[language]}
             </Text>
 
             <TouchableOpacity
@@ -155,29 +182,35 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
                   {isRecording ? "⏹" : voiceRecordingUri ? "✓" : "🎤"}
                 </Text>
                 <Text style={styles.voiceButtonText}>
-                  {isRecording ? "Stop Recording" : voiceRecordingUri ? "Voice Ready" : "Record Voice"}
+                  {isRecording 
+                    ? (language === "en" ? "Stop Recording" : "Arrêter") 
+                    : voiceRecordingUri 
+                    ? (language === "en" ? "Voice Ready" : "Voix prête") 
+                    : (language === "en" ? "Record Voice" : "Enregistrer")}
                 </Text>
               </View>
             </TouchableOpacity>
 
             <Text style={styles.voiceNote}>
-              💡 Speak clearly for 3-5 seconds for best results
+              {language === "en" 
+                ? "💡 Speak clearly for 3-5 seconds for best results" 
+                : "💡 Parlez clairement pendant 3 à 5 secondes"}
             </Text>
           </View>
 
           {/* Divider */}
           <View style={styles.dividerContainer}>
             <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
+            <Text style={styles.dividerText}>{language === "en" ? "OR" : "OU"}</Text>
             <View style={styles.dividerLine} />
           </View>
 
           {/* Email & Password Section */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{translations.emailLabel[language]}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your email"
+              placeholder={translations.emailPlaceholder[language]}
               placeholderTextColor="#64748b"
               value={email}
               onChangeText={setEmail}
@@ -188,10 +221,10 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
+            <Text style={styles.label}>{translations.passwordLabel[language]}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your password"
+              placeholder={translations.passwordPlaceholder[language]}
               placeholderTextColor="#64748b"
               value={password}
               onChangeText={setPassword}
@@ -206,13 +239,15 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
             onPress={handleSignIn}
             disabled={loading}
           >
-            <Text style={styles.buttonText}>{loading ? "Signing in..." : "Sign In"}</Text>
+            <Text style={styles.buttonText}>
+              {loading ? translations.signingIn[language] : translations.signInButton[language]}
+            </Text>
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
+            <Text style={styles.footerText}>{translations.noAccount[language]} </Text>
             <TouchableOpacity onPress={() => navigation.navigate("SignUp")}>
-              <Text style={styles.linkText}>Sign Up</Text>
+              <Text style={styles.linkText}>{translations.signUpLink[language]}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -229,6 +264,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     padding: 20,
+    paddingBottom: 40,
   },
   header: {
     marginBottom: 40,

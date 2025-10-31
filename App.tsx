@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack"
 import { SafeAreaProvider } from "react-native-safe-area-context"
 import { GestureHandlerRootView } from "react-native-gesture-handler"
 import { StatusBar } from "expo-status-bar"
+import { LanguageProvider } from "./utils/LanguageContext"
 
 import SignInScreen from "./screens/auth/SignInScreen"
 import SignUpScreen from "./screens/auth/SignUpScreen"
@@ -22,14 +23,15 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer>
-          <StatusBar style="light" translucent />
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: "#0f172a" },
-            }}
-          >
+        <LanguageProvider>
+          <NavigationContainer>
+            <StatusBar style="light" translucent />
+            <Stack.Navigator
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: "#0f172a" },
+              }}
+            >
             {!isSignedIn ? (
               <>
                 <Stack.Screen name="SignIn" options={{ animation: "none" }}>
@@ -59,6 +61,7 @@ export default function App() {
             )}
           </Stack.Navigator>
         </NavigationContainer>
+        </LanguageProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )

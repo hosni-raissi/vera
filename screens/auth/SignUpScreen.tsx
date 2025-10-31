@@ -6,9 +6,11 @@ import { LinearGradient } from "expo-linear-gradient"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { Audio } from "expo-av"
 import * as ImagePicker from "expo-image-picker"
+import { useLanguage } from "../../utils/LanguageContext"
 
 export default function SignUpScreen({ navigation }: any) {
   const insets = useSafeAreaInsets()
+  const { language } = useLanguage()
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [cin, setCin] = useState("")
@@ -18,6 +20,38 @@ export default function SignUpScreen({ navigation }: any) {
   const [isRecording, setIsRecording] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [loading, setLoading] = useState(false)
+
+  const translations = {
+    title: { en: "Create Account", fr: "Créer un compte" },
+    subtitle: { en: "Join Vera today", fr: "Rejoignez Vera aujourd'hui" },
+    nameLabel: { en: "Full Name", fr: "Nom complet" },
+    namePlaceholder: { en: "Enter your full name", fr: "Entrez votre nom complet" },
+    emailLabel: { en: "Email", fr: "E-mail" },
+    emailPlaceholder: { en: "Enter your email", fr: "Entrez votre e-mail" },
+    cinLabel: { en: "CIN", fr: "CIN" },
+    cinPlaceholder: { en: "Enter your CIN number", fr: "Entrez votre numéro CIN" },
+    faceTitle: { en: "Face Photo", fr: "Photo du visage" },
+    faceSubtitle: { en: "Take a clear photo for verification", fr: "Prenez une photo claire pour vérification" },
+    takePhoto: { en: "Take Photo", fr: "Prendre une photo" },
+    retakePhoto: { en: "Retake Photo", fr: "Reprendre" },
+    voiceTitle: { en: "Voice Recording", fr: "Enregistrement vocal" },
+    voiceSubtitle: { en: "Record your voice for authentication", fr: "Enregistrez votre voix pour l'authentification" },
+    recording: { en: "Recording", fr: "Enregistrement" },
+    startRecording: { en: "Start Recording", fr: "Commencer" },
+    stopRecording: { en: "Stop Recording", fr: "Arrêter" },
+    voiceRecorded: { en: "Voice Recorded", fr: "Voix enregistrée" },
+    signUpButton: { en: "Create Account", fr: "Créer le compte" },
+    creatingAccount: { en: "Creating account...", fr: "Création du compte..." },
+    haveAccount: { en: "Already have an account?", fr: "Vous avez déjà un compte ?" },
+    signInLink: { en: "Sign In", fr: "Se connecter" },
+    success: { en: "Success", fr: "Succès" },
+    accountCreated: { en: "Account created successfully!", fr: "Compte créé avec succès !" },
+    error: { en: "Error", fr: "Erreur" },
+    fillAllFields: { en: "Please fill all fields and complete biometric verification", fr: "Veuillez remplir tous les champs et compléter la vérification biométrique" },
+    photoTaken: { en: "Photo taken successfully!", fr: "Photo prise avec succès !" },
+    voiceRecordedAlert: { en: "Voice recorded successfully!", fr: "Voix enregistrée avec succès !" },
+    recordingFailed: { en: "Failed to start recording", fr: "Échec de l'enregistrement" },
+  }
 
   useEffect(() => {
     return () => {
@@ -30,7 +64,12 @@ export default function SignUpScreen({ navigation }: any) {
   const takeFacePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync()
     if (status !== "granted") {
-      Alert.alert("Permission required", "Please grant camera permission to capture your face")
+      Alert.alert(
+        language === "en" ? "Permission required" : "Permission requise",
+        language === "en" 
+          ? "Please grant camera permission to capture your face" 
+          : "Veuillez accorder l'autorisation de la caméra"
+      )
       return
     }
 
@@ -43,7 +82,7 @@ export default function SignUpScreen({ navigation }: any) {
 
     if (!result.canceled && result.assets[0]) {
       setFaceImage(result.assets[0].uri)
-      Alert.alert("Success", "Face photo captured!")
+      Alert.alert(translations.success[language], translations.photoTaken[language])
     }
   }
 
@@ -51,7 +90,12 @@ export default function SignUpScreen({ navigation }: any) {
     try {
       const { status } = await Audio.requestPermissionsAsync()
       if (status !== "granted") {
-        Alert.alert("Permission required", "Please grant microphone permission to record your voice")
+        Alert.alert(
+          language === "en" ? "Permission required" : "Permission requise",
+          language === "en" 
+            ? "Please grant microphone permission to record your voice" 
+            : "Veuillez accorder l'autorisation du microphone"
+        )
         return
       }
 
@@ -76,7 +120,7 @@ export default function SignUpScreen({ navigation }: any) {
         stopRecording()
       }, 5000)
     } catch (err) {
-      Alert.alert("Error", "Failed to start recording")
+      Alert.alert(translations.error[language], translations.recordingFailed[language])
       console.error("Failed to start recording", err)
     }
   }
@@ -92,28 +136,40 @@ export default function SignUpScreen({ navigation }: any) {
 
       if (uri) {
         setVoiceRecordingUri(uri)
-        Alert.alert("Success", "Voice recorded!")
+        Alert.alert(translations.success[language], translations.voiceRecordedAlert[language])
       }
       
       setRecording(null)
     } catch (err) {
-      Alert.alert("Error", "Failed to process voice recording")
+      Alert.alert(
+        translations.error[language],
+        language === "en" ? "Failed to process voice recording" : "Échec du traitement de l'enregistrement"
+      )
       console.error("Failed to stop recording", err)
       setRecording(null)
     }
   }
 
   const handleSignUp = async () => {
-    if (!fullName || !email || !cin) {
-      Alert.alert("Error", "Please fill in all required fields")
+    if (!fullName.trim() || !email.trim() || !cin.trim()) {
+      Alert.alert(
+        translations.error[language],
+        language === "en" ? "Please fill in all required fields" : "Veuillez remplir tous les champs requis"
+      )
       return
     }
     if (!faceImage) {
-      Alert.alert("Error", "Please capture your face photo")
+      Alert.alert(
+        translations.error[language],
+        language === "en" ? "Please capture your face photo" : "Veuillez prendre votre photo"
+      )
       return
     }
     if (!voiceRecordingUri) {
-      Alert.alert("Error", "Please record your voice")
+      Alert.alert(
+        translations.error[language],
+        language === "en" ? "Please record your voice" : "Veuillez enregistrer votre voix"
+      )
       return
     }
     
@@ -122,11 +178,13 @@ export default function SignUpScreen({ navigation }: any) {
     setTimeout(() => {
       setLoading(false)
       Alert.alert(
-        "Success", 
-        "Account created! Your password has been sent to your email.",
+        translations.success[language], 
+        language === "en" 
+          ? "Account created! Your password has been sent to your email." 
+          : "Compte créé ! Votre mot de passe a été envoyé à votre e-mail.",
         [{ text: "OK", onPress: () => navigation.navigate("SignIn") }]
       )
-    }, 2000)
+    }, 1500)
   }
 
   return (
@@ -136,24 +194,23 @@ export default function SignUpScreen({ navigation }: any) {
       end={{ x: 1, y: 1 }}
       style={styles.container}
     >
-      <ScrollView 
-        contentContainerStyle={[
-          styles.scrollContent, 
-          { paddingTop: insets.top, paddingBottom: insets.bottom }
-        ]}
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        contentInsetAdjustmentBehavior="never"
+        style={{ paddingTop: insets.top }}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join Vera today</Text>
+          <Text style={styles.title}>{translations.title[language]}</Text>
+          <Text style={styles.subtitle}>{translations.subtitle[language]}</Text>
         </View>
 
         <View style={styles.form}>
           {/* Full Name */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name *</Text>
+            <Text style={styles.label}>{translations.nameLabel[language]} *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your full name"
+              placeholder={translations.namePlaceholder[language]}
               placeholderTextColor="#64748b"
               value={fullName}
               onChangeText={setFullName}
@@ -163,10 +220,10 @@ export default function SignUpScreen({ navigation }: any) {
 
           {/* Email */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email *</Text>
+            <Text style={styles.label}>{translations.emailLabel[language]} *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your email"
+              placeholder={translations.emailPlaceholder[language]}
               placeholderTextColor="#64748b"
               value={email}
               onChangeText={setEmail}
@@ -178,10 +235,10 @@ export default function SignUpScreen({ navigation }: any) {
 
           {/* CIN */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>CIN (National ID) *</Text>
+            <Text style={styles.label}>{translations.cinLabel[language]} *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your CIN"
+              placeholder={translations.cinPlaceholder[language]}
               placeholderTextColor="#64748b"
               value={cin}
               onChangeText={setCin}
@@ -191,9 +248,9 @@ export default function SignUpScreen({ navigation }: any) {
 
           {/* Face Photo Capture */}
           <View style={styles.captureSection}>
-            <Text style={styles.sectionTitle}>Face Recognition *</Text>
+            <Text style={styles.sectionTitle}>{translations.faceTitle[language]} *</Text>
             <Text style={styles.sectionSubtitle}>
-              Take a photo of your face for secure authentication
+              {translations.faceSubtitle[language]}
             </Text>
             
             {faceImage ? (
@@ -204,7 +261,7 @@ export default function SignUpScreen({ navigation }: any) {
                   onPress={takeFacePhoto}
                   disabled={loading}
                 >
-                  <Text style={styles.retakeButtonText}>Retake Photo</Text>
+                  <Text style={styles.retakeButtonText}>{translations.retakePhoto[language]}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
@@ -214,20 +271,20 @@ export default function SignUpScreen({ navigation }: any) {
                 disabled={loading}
               >
                 <Text style={styles.captureButtonIcon}>📷</Text>
-                <Text style={styles.captureButtonText}>Capture Face Photo</Text>
+                <Text style={styles.captureButtonText}>{translations.takePhoto[language]}</Text>
               </TouchableOpacity>
             )}
           </View>
 
           {/* Voice Recording */}
           <View style={styles.captureSection}>
-            <Text style={styles.sectionTitle}>Voice Recognition *</Text>
+            <Text style={styles.sectionTitle}>{translations.voiceTitle[language]} *</Text>
             <Text style={styles.sectionSubtitle}>
               {isRecording
-                ? `Recording... ${recordingDuration}s`
+                ? `${translations.recording[language]}... ${recordingDuration}s`
                 : voiceRecordingUri
-                ? "✓ Voice recorded!"
-                : "Record your voice for authentication"}
+                ? `✓ ${translations.voiceRecorded[language]}!`
+                : translations.voiceSubtitle[language]}
             </Text>
 
             <TouchableOpacity
@@ -244,12 +301,18 @@ export default function SignUpScreen({ navigation }: any) {
                 {isRecording ? "⏹" : voiceRecordingUri ? "✓" : "🎤"}
               </Text>
               <Text style={styles.voiceButtonText}>
-                {isRecording ? "Stop Recording" : voiceRecordingUri ? "Re-record" : "Record Voice"}
+                {isRecording 
+                  ? translations.stopRecording[language] 
+                  : voiceRecordingUri 
+                  ? (language === "en" ? "Re-record" : "Réenregistrer")
+                  : translations.startRecording[language]}
               </Text>
             </TouchableOpacity>
             
             <Text style={styles.noteText}>
-              💡 Speak clearly for 3-5 seconds
+              {language === "en" 
+                ? "💡 Speak clearly for 3-5 seconds" 
+                : "💡 Parlez clairement pendant 3 à 5 secondes"}
             </Text>
           </View>
 
@@ -257,7 +320,9 @@ export default function SignUpScreen({ navigation }: any) {
           <View style={styles.infoBox}>
             <Text style={styles.infoIcon}>🔐</Text>
             <Text style={styles.infoText}>
-              Your password will be automatically generated and sent to your email
+              {language === "en" 
+                ? "Your password will be automatically generated and sent to your email" 
+                : "Votre mot de passe sera automatiquement généré et envoyé à votre e-mail"}
             </Text>
           </View>
 
@@ -268,14 +333,14 @@ export default function SignUpScreen({ navigation }: any) {
             disabled={loading}
           >
             <Text style={styles.buttonText}>
-              {loading ? "Creating account..." : "Create Account"}
+              {loading ? translations.creatingAccount[language] : translations.signUpButton[language]}
             </Text>
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Already have an account? </Text>
+            <Text style={styles.footerText}>{translations.haveAccount[language]} </Text>
             <TouchableOpacity onPress={() => navigation.navigate("SignIn")}>
-              <Text style={styles.linkText}>Sign In</Text>
+              <Text style={styles.linkText}>{translations.signInLink[language]}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -291,6 +356,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     padding: 20,
+    paddingBottom: 40,
   },
   header: {
     marginBottom: 30,

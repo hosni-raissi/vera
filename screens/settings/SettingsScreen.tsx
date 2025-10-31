@@ -1,7 +1,108 @@
-import React, { useState } from "react"
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native"
+import React, { useState, useRef, useEffect } from "react"
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Image, Alert, Modal, Dimensions, Animated } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { LinearGradient } from "expo-linear-gradient"
+import * as ImagePicker from "expo-image-picker"
+import { Audio } from "expo-av"
+import { useLanguage } from "../../utils/LanguageContext"
+
+const { width, height } = Dimensions.get("window")
+
+// Generate random stars
+const generateStars = (count: number) => {
+  return Array.from({ length: count }, (_, i) => ({
+    id: i,
+    x: Math.random() * width,
+    y: Math.random() * height,
+    size: Math.random() * 2 + 1,
+    opacity: Math.random() * 0.5 + 0.3,
+    duration: Math.random() * 3000 + 2000,
+  }))
+}
+
+const Star = ({ star }: { star: any }) => {
+  const twinkleAnim = useRef(new Animated.Value(star.opacity)).current
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(twinkleAnim, {
+          toValue: 0.1,
+          duration: star.duration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(twinkleAnim, {
+          toValue: star.opacity,
+          duration: star.duration,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start()
+  }, [])
+
+  return (
+    <Animated.View
+      style={[
+        styles.star,
+        {
+          left: star.x,
+          top: star.y,
+          width: star.size,
+          height: star.size,
+          opacity: twinkleAnim,
+        },
+      ]}
+    />
+  )
+}
+
+const ShootingStar = () => {
+  const position = useRef(new Animated.ValueXY({ x: width * 0.8, y: -50 })).current
+  const opacity = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    const animate = () => {
+      position.setValue({ x: width * 0.8, y: -50 })
+      opacity.setValue(0)
+
+      Animated.parallel([
+        Animated.timing(position, {
+          toValue: { x: -100, y: height * 0.6 },
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.sequence([
+          Animated.timing(opacity, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 1800,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start()
+    }
+
+    animate()
+    const interval = setInterval(animate, 8000)
+    return () => clearInterval(interval)
+  }, [])
+
+  return (
+    <Animated.View
+      style={[
+        styles.shootingStar,
+        {
+          transform: position.getTranslateTransform(),
+          opacity,
+        },
+      ]}
+    />
+  )
+}
 
 interface SettingsScreenProps {
   navigation: any
@@ -12,7 +113,18 @@ interface SettingsScreenProps {
 
 export default function SettingsScreen({ navigation, onLogout, botVariant, setBotVariant }: SettingsScreenProps) {
   const insets = useSafeAreaInsets()
-  const [language, setLanguage] = useState<"en" | "fr">("en")
+  const { language, setLanguage } = useLanguage()
+  const [stars] = useState(generateStars(80))
+  const [showChangeModal, setShowChangeModal] = useState(false)
+  const [changeType, setChangeType] = useState<"email" | "password" | "photo" | "voice" | null>(null)
+  const [email, setEmail] = useState("")
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [photoUri, setPhotoUri] = useState("")
+  const [isRecording, setIsRecording] = useState(false)
+  const [recording, setRecording] = useState<Audio.Recording | null>(null)
+  const [voiceUri, setVoiceUri] = useState("")
 
   const handleLogout = () => {
     onLogout()
@@ -31,7 +143,44 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
       botVariant: "Bot Variant",
       bot: "Bot",
       planet: "Planet",
+      account: "Account",
+      changeEmail: "Change Email",
+      changeEmailDesc: "Update your email address",
+      changePassword: "Change Password",
+      changePasswordDesc: "Update your password",
+      changePhoto: "Change Photo",
+      changePhotoDesc: "Update your profile photo",
+      changeVoice: "Change Voice",
+      changeVoiceDesc: "Re-record your voice",
       logout: "Logout",
+      emailModal: "Change Email",
+      passwordModal: "Change Password",
+      photoModal: "Update Photo",
+      voiceModal: "Update Voice",
+      newEmail: "New Email",
+      currentPassword: "Current Password",
+      newPassword: "New Password",
+      confirmPassword: "Confirm New Password",
+      noPhoto: "No photo selected",
+      selectPhoto: "📷 Select Photo",
+      noVoice: "No voice recorded",
+      startRecording: "🎤 Start Recording",
+      stopRecording: "⏹ Stop Recording",
+      cancel: "Cancel",
+      save: "Save",
+      success: "Success",
+      error: "Error",
+      emailError: "Please enter a valid email",
+      passwordError: "Passwords do not match",
+      photoError: "Please select a photo",
+      voiceError: "Please record your voice",
+      emailSuccess: "Email updated successfully!",
+      passwordSuccess: "Password updated successfully!",
+      photoSuccess: "Photo updated successfully!",
+      voiceSuccess: "Voice updated successfully!",
+      permissionRequired: "Permission Required",
+      microphonePermission: "Microphone permission is required",
+      recordingFailed: "Failed to start recording",
     },
     fr: {
       title: "Paramètres",
@@ -41,36 +190,179 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
       botVariant: "Variante du Bot",
       bot: "Bot",
       planet: "Planète",
+      account: "Compte",
+      changeEmail: "Changer l'e-mail",
+      changeEmailDesc: "Mettre à jour votre adresse e-mail",
+      changePassword: "Changer le mot de passe",
+      changePasswordDesc: "Mettre à jour votre mot de passe",
+      changePhoto: "Changer la photo",
+      changePhotoDesc: "Mettre à jour votre photo de profil",
+      changeVoice: "Changer la voix",
+      changeVoiceDesc: "Réenregistrer votre voix",
       logout: "Déconnexion",
+      emailModal: "Changer l'e-mail",
+      passwordModal: "Changer le mot de passe",
+      photoModal: "Mettre à jour la photo",
+      voiceModal: "Mettre à jour la voix",
+      newEmail: "Nouvel e-mail",
+      currentPassword: "Mot de passe actuel",
+      newPassword: "Nouveau mot de passe",
+      confirmPassword: "Confirmer le nouveau mot de passe",
+      noPhoto: "Aucune photo sélectionnée",
+      selectPhoto: "📷 Sélectionner une photo",
+      noVoice: "Aucune voix enregistrée",
+      startRecording: "🎤 Commencer l'enregistrement",
+      stopRecording: "⏹ Arrêter l'enregistrement",
+      cancel: "Annuler",
+      save: "Enregistrer",
+      success: "Succès",
+      error: "Erreur",
+      emailError: "Veuillez entrer un e-mail valide",
+      passwordError: "Les mots de passe ne correspondent pas",
+      photoError: "Veuillez sélectionner une photo",
+      voiceError: "Veuillez enregistrer votre voix",
+      emailSuccess: "E-mail mis à jour avec succès !",
+      passwordSuccess: "Mot de passe mis à jour avec succès !",
+      photoSuccess: "Photo mise à jour avec succès !",
+      voiceSuccess: "Voix mise à jour avec succès !",
+      permissionRequired: "Permission requise",
+      microphonePermission: "L'autorisation du microphone est requise",
+      recordingFailed: "Échec de l'enregistrement",
     },
   }
 
   const t = text[language]
 
+  const handlePickPhoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      quality: 1,
+    })
+
+    if (!result.canceled && result.assets[0]) {
+      setPhotoUri(result.assets[0].uri)
+    }
+  }
+
+  const startRecording = async () => {
+    try {
+      const permission = await Audio.requestPermissionsAsync()
+      if (!permission.granted) {
+        Alert.alert(t.permissionRequired, t.microphonePermission)
+        return
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      })
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      )
+      setRecording(recording)
+      setIsRecording(true)
+    } catch (err) {
+      Alert.alert(t.error, t.recordingFailed)
+    }
+  }
+
+  const stopRecording = async () => {
+    if (!recording) return
+    try {
+      await recording.stopAndUnloadAsync()
+      const uri = recording.getURI()
+      setVoiceUri(uri || "")
+      setRecording(null)
+      setIsRecording(false)
+      Alert.alert(t.success, t.voiceSuccess)
+    } catch (err) {
+      Alert.alert(t.error, language === "en" ? "Failed to stop recording" : "Échec de l'arrêt de l'enregistrement")
+    }
+  }
+
+  const handleSaveChanges = () => {
+    if (changeType === "email") {
+      if (!email.trim()) {
+        Alert.alert(t.error, t.emailError)
+        return
+      }
+      Alert.alert(t.success, t.emailSuccess)
+    } else if (changeType === "password") {
+      if (!currentPassword || !newPassword || !confirmPassword) {
+        Alert.alert(t.error, language === "en" ? "Please fill all password fields" : "Veuillez remplir tous les champs")
+        return
+      }
+      if (newPassword !== confirmPassword) {
+        Alert.alert(t.error, t.passwordError)
+        return
+      }
+      Alert.alert(t.success, t.passwordSuccess)
+    } else if (changeType === "photo") {
+      if (!photoUri) {
+        Alert.alert(t.error, t.photoError)
+        return
+      }
+      Alert.alert(t.success, t.photoSuccess)
+    } else if (changeType === "voice") {
+      if (!voiceUri) {
+        Alert.alert(t.error, t.voiceError)
+        return
+      }
+      Alert.alert(t.success, t.voiceSuccess)
+    }
+    
+    setShowChangeModal(false)
+    resetForm()
+  }
+
+  const resetForm = () => {
+    setEmail("")
+    setCurrentPassword("")
+    setNewPassword("")
+    setConfirmPassword("")
+    setPhotoUri("")
+    setVoiceUri("")
+    setChangeType(null)
+  }
+
+  const openChangeModal = (type: "email" | "password" | "photo" | "voice") => {
+    setChangeType(type)
+    setShowChangeModal(true)
+  }
+
   return (
     <View style={styles.container}>
+      {/* Notch Area Background */}
+      <View style={[styles.notchBackground, { height: insets.top }]} />
+      
       <LinearGradient
         colors={["#0f172a", "#1e293b", "#0f172a"]}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
+
+      {/* Animated Stars Background */}
+      {stars.map((star) => (
+        <Star key={star.id} star={star} />
+      ))}
+      <ShootingStar />
+
+      {/* Fixed Header */}
+      <View style={[styles.fixedHeader, { paddingTop: insets.top + 10 }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>{t.title}</Text>
+      </View>
+
       <ScrollView
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingTop: insets.top + 20,
-            paddingBottom: insets.bottom + 20,
-          },
-        ]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top -30}]}
+        contentInsetAdjustmentBehavior="never"
+        showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>{t.title}</Text>
-        </View>
 
         {/* Language Selection */}
         <View style={styles.section}>
@@ -118,11 +410,180 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
           </View>
         </View>
 
+        {/* Account Settings */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t.account}</Text>
+          
+          <TouchableOpacity style={styles.settingItem} onPress={() => openChangeModal("email")}>
+            <Text style={styles.settingIcon}>📧</Text>
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>{t.changeEmail}</Text>
+              <Text style={styles.settingSubtitle}>{t.changeEmailDesc}</Text>
+            </View>
+            <Text style={styles.settingArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingItem} onPress={() => openChangeModal("password")}>
+            <Text style={styles.settingIcon}>🔒</Text>
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>{t.changePassword}</Text>
+              <Text style={styles.settingSubtitle}>{t.changePasswordDesc}</Text>
+            </View>
+            <Text style={styles.settingArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingItem} onPress={() => openChangeModal("photo")}>
+            <Text style={styles.settingIcon}>📷</Text>
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>{t.changePhoto}</Text>
+              <Text style={styles.settingSubtitle}>{t.changePhotoDesc}</Text>
+            </View>
+            <Text style={styles.settingArrow}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingItem} onPress={() => openChangeModal("voice")}>
+            <Text style={styles.settingIcon}>🎤</Text>
+            <View style={styles.settingContent}>
+              <Text style={styles.settingTitle}>{t.changeVoice}</Text>
+              <Text style={styles.settingSubtitle}>{t.changeVoiceDesc}</Text>
+            </View>
+            <Text style={styles.settingArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Logout Button */}
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutButtonText}>{t.logout}</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Change Modal */}
+      <Modal
+        visible={showChangeModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => {
+          setShowChangeModal(false)
+          resetForm()
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {changeType === "email" && t.emailModal}
+                {changeType === "password" && t.passwordModal}
+                {changeType === "photo" && t.photoModal}
+                {changeType === "voice" && t.voiceModal}
+              </Text>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => {
+                  setShowChangeModal(false)
+                  resetForm()
+                }}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              {changeType === "email" && (
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder={t.newEmail}
+                  placeholderTextColor="#64748b"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              )}
+
+              {changeType === "password" && (
+                <>
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={t.currentPassword}
+                    placeholderTextColor="#64748b"
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    secureTextEntry
+                  />
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={t.newPassword}
+                    placeholderTextColor="#64748b"
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry
+                  />
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={t.confirmPassword}
+                    placeholderTextColor="#64748b"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry
+                  />
+                </>
+              )}
+
+              {changeType === "photo" && (
+                <View style={styles.photoSection}>
+                  {photoUri ? (
+                    <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+                  ) : (
+                    <View style={styles.photoPlaceholder}>
+                      <Text style={styles.photoPlaceholderText}>{t.noPhoto}</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity style={styles.photoButton} onPress={handlePickPhoto}>
+                    <Text style={styles.photoButtonText}>{t.selectPhoto}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {changeType === "voice" && (
+                <View style={styles.voiceSection}>
+                  {voiceUri ? (
+                    <View style={styles.voiceIndicator}>
+                      <Text style={styles.voiceIndicatorText}>✓ {language === "en" ? "Voice recorded" : "Voix enregistrée"}</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.voiceIndicator}>
+                      <Text style={styles.voiceIndicatorText}>{t.noVoice}</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.voiceButton, isRecording && styles.voiceButtonRecording]}
+                    onPress={isRecording ? stopRecording : startRecording}
+                  >
+                    <Text style={styles.voiceButtonText}>
+                      {isRecording ? t.stopRecording : t.startRecording}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowChangeModal(false)
+                  resetForm()
+                }}
+              >
+                <Text style={styles.modalCancelText}>{t.cancel}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalSaveButton} onPress={handleSaveChanges}>
+                <Text style={styles.modalSaveText}>{t.save}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -130,14 +591,42 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#0f172a",
+  },
+  star: {
+    position: "absolute",
+    backgroundColor: "#ffffff",
+    borderRadius: 50,
+  },
+  shootingStar: {
+    position: "absolute",
+    width: 100,
+    height: 2,
+    backgroundColor: "#ffffff",
+    shadowColor: "#ffffff",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 4,
+  },
+  notchBackground: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#0f172a",
+    zIndex: 1,
+  },
+  fixedHeader: {
+    backgroundColor: "transparent",
+    paddingBottom: 15,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 2,
   },
   scrollContent: {
     paddingHorizontal: 20,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 40,
+    paddingBottom: 40,
   },
   backButton: {
     width: 40,
@@ -191,6 +680,38 @@ const styles = StyleSheet.create({
   optionButtonTextActive: {
     color: "#0ea5e9",
   },
+  settingItem: {
+    backgroundColor: "rgba(30, 41, 59, 0.3)",
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "rgba(3, 105, 161, 0.2)",
+  },
+  settingIcon: {
+    fontSize: 28,
+    marginRight: 16,
+  },
+  settingContent: {
+    flex: 1,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ffffff",
+    marginBottom: 4,
+  },
+  settingSubtitle: {
+    fontSize: 13,
+    color: "#94a3b8",
+  },
+  settingArrow: {
+    fontSize: 24,
+    color: "#64748b",
+    marginLeft: 8,
+  },
   logoutButton: {
     backgroundColor: "#ef4444",
     borderRadius: 12,
@@ -202,5 +723,161 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#ffffff",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContainer: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#1e293b",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(14, 165, 233, 0.2)",
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+  modalCloseButton: {
+    width: 30,
+    height: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCloseText: {
+    fontSize: 24,
+    color: "#94a3b8",
+  },
+  modalBody: {
+    padding: 20,
+  },
+  modalInput: {
+    backgroundColor: "rgba(30, 41, 59, 0.5)",
+    borderWidth: 1,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: "#ffffff",
+    marginBottom: 12,
+  },
+  photoSection: {
+    alignItems: "center",
+  },
+  photoPreview: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    marginBottom: 16,
+  },
+  photoPlaceholder: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "rgba(30, 41, 59, 0.5)",
+    borderWidth: 2,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  photoPlaceholderText: {
+    fontSize: 14,
+    color: "#64748b",
+  },
+  photoButton: {
+    backgroundColor: "rgba(236, 72, 153, 0.2)",
+    borderWidth: 1,
+    borderColor: "#ec4899",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  photoButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ec4899",
+  },
+  voiceSection: {
+    alignItems: "center",
+  },
+  voiceIndicator: {
+    backgroundColor: "rgba(30, 41, 59, 0.5)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  voiceIndicatorText: {
+    fontSize: 14,
+    color: "#94a3b8",
+  },
+  voiceButton: {
+    backgroundColor: "rgba(168, 85, 247, 0.2)",
+    borderWidth: 1,
+    borderColor: "#a855f7",
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  voiceButtonRecording: {
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderColor: "#ef4444",
+  },
+  voiceButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#a855f7",
+  },
+  modalFooter: {
+    flexDirection: "row",
+    padding: 20,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(14, 165, 233, 0.2)",
+  },
+  modalCancelButton: {
+    flex: 1,
+    backgroundColor: "rgba(100, 116, 139, 0.2)",
+    borderWidth: 1,
+    borderColor: "#64748b",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#94a3b8",
+  },
+  modalSaveButton: {
+    flex: 1,
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 1,
+    borderColor: "#0ea5e9",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  modalSaveText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0ea5e9",
   },
 })
