@@ -270,8 +270,8 @@ export default function SignUpScreen({ navigation }: any) {
       Alert.alert(
         translations.success[language], 
         language === "en" 
-          ? `Account created successfully!\nYour data is stored securely in MEGA.\nYou can now sign in.` 
-          : `Compte créé avec succès !\nVos données sont stockées en toute sécurité dans MEGA.\nVous pouvez maintenant vous connecter.`,
+          ? `Account created successfully!\nYour data is stored securely in cloud.\nYou can now sign in.` 
+          : `Compte créé avec succès !\nVos données sont stockées en toute sécurité dans cloud.\nVous pouvez maintenant vous connecter.`,
         [{ 
           text: "OK", 
           onPress: () => navigation.navigate("SignIn") 

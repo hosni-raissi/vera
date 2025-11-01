@@ -47,7 +47,7 @@ class ClothesService {
   }
 
   /**
-   * Load all clothes from MEGA
+   * Load all clothes from cloud
    */
   async loadClothes(): Promise<ClothingItem[]> {
     try {
@@ -62,7 +62,9 @@ class ClothesService {
       }
 
       const data = await response.json()
-      return data.clothes || []
+      const clothes = data.clothes || []
+      console.log('📥 Loaded clothes from cloud:', JSON.stringify(clothes, null, 2))
+      return clothes
     } catch (error) {
       console.error('Error loading clothes:', error)
       throw error
@@ -70,10 +72,12 @@ class ClothesService {
   }
 
   /**
-   * Save all clothes to MEGA
+   * Save all clothes to cloud
    */
   async saveClothes(clothes: ClothingItem[]): Promise<void> {
     try {
+      console.log('💾 Saving clothes to cloud:', JSON.stringify(clothes, null, 2))
+      
       const headers = await this.getAuthHeaders()
       const response = await fetch(buildUrl('/storage/clothes'), {
         method: 'POST',
@@ -144,31 +148,35 @@ class ClothesService {
   /**
    * Add a new clothing item
    */
-  async addClothingItem(item: ClothingItem, allClothes: ClothingItem[]): Promise<void> {
+  async addClothingItem(item: Omit<ClothingItem, 'megaFileId'>): Promise<ClothingItem> {
     try {
-      // If item has a local image, upload it to MEGA
+      // Load existing clothes
+      const clothes = await this.loadClothes()
+      
+      // Upload image if provided
+      let megaFileId: string | undefined
       if (item.imageUri && item.imageUri.startsWith('file://')) {
         const filename = `clothing_${item.id}.jpg`
-        const megaFileId = await this.uploadClothesImage(item.imageUri, filename)
+        megaFileId = await this.uploadClothesImage(item.imageUri, filename) || undefined
         
-        console.log('Uploaded image, received file ID:', megaFileId, typeof megaFileId)
-        
-        if (megaFileId) {
-          // Ensure megaFileId is a string, not an object
-          item.megaFileId = typeof megaFileId === 'string' ? megaFileId : String(megaFileId)
-          item.imageUri = '' // Clear local URI after upload
-        }
+        console.log('✅ Clothing image uploaded with ID:', megaFileId)
       }
       
-      // Add to the list
-      allClothes.push(item)
+      // Create new clothing item
+      const newItem: ClothingItem = {
+        ...item,
+        megaFileId,
+        imageUri: '', // Clear local URI after upload
+      }
       
-      console.log('Saving clothing item with megaFileId:', item.megaFileId)
+      console.log('💾 Saving clothing item with megaFileId:', newItem.megaFileId)
       
-      // Save to MEGA
-      await this.saveClothes(allClothes)
+      // Add to list and save
+      clothes.push(newItem)
+      await this.saveClothes(clothes)
       
-      console.log('Clothing item added successfully')
+      console.log('✅ Clothing item added successfully:', newItem.name)
+      return newItem
     } catch (error) {
       console.error('Error adding clothing item:', error)
       throw error
@@ -207,19 +215,63 @@ class ClothesService {
   }
 
   /**
-   * Delete a clothing item
+   * Delete a clothing item (also deletes the image from MEGA)
    */
-  async deleteClothingItem(itemId: string, allClothes: ClothingItem[]): Promise<void> {
+  async deleteClothingItem(itemId: string): Promise<void> {
     try {
-      // Filter out the item
-      const updatedClothes = allClothes.filter(c => c.id !== itemId)
+      console.log('🗑️ Deleting clothing item with ID:', itemId)
       
-      // Save to MEGA
+      // Load fresh data from MEGA to ensure we have correct megaFileId
+      const clothes = await this.loadClothes()
+      const itemToDelete = clothes.find(c => c.id === itemId)
+      
+      if (!itemToDelete) {
+        throw new Error('Clothing item not found')
+      }
+      
+      console.log('🗑️ Found item to delete:', {
+        id: itemToDelete.id,
+        name: itemToDelete.name,
+        megaFileId: itemToDelete.megaFileId
+      })
+      
+      // Delete the image from MEGA if it exists
+      if (itemToDelete.megaFileId) {
+        try {
+          console.log('🗑️ Deleting clothing image:', itemToDelete.megaFileId)
+          const token = await StorageService.getToken()
+          const deleteUrl = buildUrl(`/storage/delete/${itemToDelete.megaFileId}`)
+          
+          const response = await fetch(deleteUrl, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          })
+          
+          if (response.ok) {
+            const result = await response.json()
+            console.log('✅ Clothing image deleted from MEGA:', result)
+          } else {
+            console.warn('❌ Failed to delete image from MEGA:', response.status, await response.text())
+          }
+        } catch (error) {
+          console.warn('❌ Error deleting image from MEGA:', error)
+          // Continue with deletion even if image deletion fails
+        }
+      } else {
+        console.warn('⚠️ No megaFileId found for item, skipping image deletion')
+      }
+      
+      // Filter out the item
+      const updatedClothes = clothes.filter(c => c.id !== itemId)
+      
+      // Save updated list to MEGA
       await this.saveClothes(updatedClothes)
       
-      console.log('Clothing item deleted successfully')
+      console.log('✅ Clothing item deleted successfully')
     } catch (error) {
-      console.error('Error deleting clothing item:', error)
+      console.error('❌ Error deleting clothing item:', error)
       throw error
     }
   }

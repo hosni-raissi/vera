@@ -9,9 +9,11 @@ import * as Location from "expo-location"
 import { useLanguage } from "../../utils/LanguageContext"
 import CredentialsService from "../../services/credentialsService"
 import ClothesService from "../../services/clothesService"
+import LocationService from "../../services/locationService"
+import PersonService from "../../services/personService"
 
-// Component to load and display images from MEGA
-const MegaImage = ({ fileId, style }: { fileId: string; style: any }) => {
+// Component to load and display images from cloud storage
+const CloudImage = ({ fileId, style }: { fileId: string; style: any }) => {
   const [imageUri, setImageUri] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -21,7 +23,7 @@ const MegaImage = ({ fileId, style }: { fileId: string; style: any }) => {
         const uri = await ClothesService.getImageUrl(fileId)
         setImageUri(uri)
       } catch (error) {
-        console.error('Error loading MEGA image:', error)
+        console.error('Error loading cloud image:', error)
       } finally {
         setLoading(false)
       }
@@ -105,6 +107,11 @@ interface ClothingItem {
   imageUri: string
   name: string
   category: string
+  color?: string
+  size?: string
+  brand?: string
+  notes?: string
+  megaFileId?: string
 }
 
 interface CreditCard {
@@ -125,6 +132,7 @@ interface PersonalInfo {
   name: string
   details: string
   imageUri?: string
+  megaFileId?: string
 }
 
 interface Credential {
@@ -189,6 +197,8 @@ export default function DashboardScreen({ navigation }: any) {
     expiryDate: { en: "Expiry Date (MM/YY)", fr: "Date d'expiration (MM/AA)" },
     cvv: { en: "CVV", fr: "CVV" },
     emailAddress: { en: "Email Address", fr: "Adresse e-mail" },
+    emailPassword: { en: "App Password / Key", fr: "Mot de passe d'application / Clé" },
+    emailPasswordPlaceholder: { en: "Enter app password for sending emails", fr: "Entrer le mot de passe d'application pour l'envoi d'e-mails" },
     phoneNumber: { en: "Phone Number", fr: "Numéro de téléphone" },
     locationLabel: { en: "Location Label", fr: "Libellé" },
     captureLocation: { en: "Capture Current Location", fr: "Capturer ma position" },
@@ -277,6 +287,23 @@ export default function DashboardScreen({ navigation }: any) {
 
       setAutoCurrentLocation(locationData)
       console.log("Current location updated:", address)
+      
+      // Save location to cloud with history tracking
+      try {
+        const addressParts = address.split(',').map(part => part.trim())
+        await LocationService.updateLocation({
+          address,
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          city: addressParts.length > 1 ? addressParts[1] : undefined,
+          country: addressParts.length > 0 ? addressParts[addressParts.length - 1] : undefined,
+          source: 'automatic'
+        })
+        console.log("📍 Location saved to cloud with history tracking")
+      } catch (error) {
+        console.error("❌ Failed to save location to cloud:", error)
+      }
+      
       return locationData
     } catch (error) {
       console.error("Failed to update current location:", error)
@@ -284,7 +311,7 @@ export default function DashboardScreen({ navigation }: any) {
     }
   }
 
-  // Load credentials from MEGA on mount
+  // Load credentials from cloud on mount
   useEffect(() => {
     loadCredentialsFromCloud()
   }, [])
@@ -301,11 +328,14 @@ export default function DashboardScreen({ navigation }: any) {
         // Continue even if upgrade fails - might already be upgraded
       }
       
-      // Load regular credentials from MEGA
+      // Load regular credentials from cloud
       const loadedCredentials = await CredentialsService.loadCredentials()
       
       // Load clothes from dedicated clothes folder
       const loadedClothes = await ClothesService.loadClothes()
+      
+      // Load persons from dedicated person folder
+      const loadedPersons = await PersonService.loadPersons()
       
       // Convert clothes to credential format for display
       const clothesCredentials: Credential[] = loadedClothes.map(item => ({
@@ -325,11 +355,29 @@ export default function DashboardScreen({ navigation }: any) {
         createdAt: new Date(item.createdAt)
       }))
       
-      // Merge clothes with other credentials
-      const allCredentials = [...clothesCredentials, ...loadedCredentials.filter(c => c.type !== 'clothing')]
+      // Convert persons to credential format for display
+      const personsCredentials: Credential[] = loadedPersons.map(item => ({
+        id: item.id,
+        type: 'personal' as CredentialType,
+        title: item.name,
+        data: {
+          name: item.name,
+          details: item.details,
+          imageUri: item.imageUri,
+          megaFileId: item.megaFileId
+        },
+        createdAt: new Date(item.createdAt)
+      }))
+      
+      // Merge clothes, persons with other credentials
+      const allCredentials = [
+        ...clothesCredentials, 
+        ...personsCredentials,
+        ...loadedCredentials.filter(c => c.type !== 'clothing' && c.type !== 'personal')
+      ]
       
       setCredentials(allCredentials)
-      console.log('✓ Loaded', allCredentials.length, 'credentials from cloud (', clothesCredentials.length, 'clothes)')
+      console.log('✓ Loaded', allCredentials.length, 'credentials from cloud (', clothesCredentials.length, 'clothes,', personsCredentials.length, 'persons)')
     } catch (error) {
       console.error('Failed to load credentials:', error)
       Alert.alert(
@@ -471,26 +519,17 @@ export default function DashboardScreen({ navigation }: any) {
               const credentialToDelete = credentials.find(c => c.id === id)
               
               if (credentialToDelete?.type === 'clothing') {
-                // Delete from clothes service
-                const allClothes = credentials
-                  .filter(c => c.type === 'clothing')
-                  .map(c => ({
-                    id: c.id,
-                    name: c.title,
-                    category: (c.data as ClothingItem).category || '',
-                    color: (c.data as any).color || '',
-                    size: (c.data as any).size || '',
-                    brand: (c.data as any).brand || '',
-                    notes: (c.data as any).notes || '',
-                    megaFileId: (c.data as any).megaFileId,
-                    imageUri: (c.data as ClothingItem).imageUri,
-                    createdAt: c.createdAt.toISOString()
-                  }))
-                
-                await ClothesService.deleteClothingItem(id, allClothes)
+                // Delete from clothes service (loads fresh data from cloud)
+                await ClothesService.deleteClothingItem(id)
+              } else if (credentialToDelete?.type === 'personal') {
+                // Delete from person service
+                await PersonService.deletePerson(id)
               } else {
                 // Delete from regular credentials service
-                const updatedCredentials = await CredentialsService.deleteCredential(id, credentials.filter(c => c.type !== 'clothing'))
+                const updatedCredentials = await CredentialsService.deleteCredential(
+                  id, 
+                  credentials.filter(c => c.type !== 'clothing' && c.type !== 'personal')
+                )
               }
               
               // Remove from local state
@@ -546,7 +585,17 @@ export default function DashboardScreen({ navigation }: any) {
         </View>
       )}
       
-      {(item.type === "email" || item.type === "phone") && typeof item.data === "string" && (
+      {item.type === "email" && (
+        <Text style={styles.credentialValue}>
+          {typeof item.data === "string" 
+            ? item.data 
+            : (typeof item.data === "object" && item.data !== null && "email" in item.data 
+                ? String(item.data.email)
+                : String(item.data))}
+        </Text>
+      )}
+      
+      {item.type === "phone" && typeof item.data === "string" && (
         <Text style={styles.credentialValue}>{item.data}</Text>
       )}
       
@@ -648,19 +697,19 @@ export default function DashboardScreen({ navigation }: any) {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                   {credentials.filter(c => c.type === "clothing").map(item => {
                     const clothingData = item.data as any
-                    // Use local imageUri for now (we'll fetch from MEGA if needed)
+                    // Use local imageUri for now (we'll fetch from cloud if needed)
                     const imageUri = clothingData.imageUri || null
-                    const hasMegaFile = clothingData.megaFileId
+                    const hasCloudFile = clothingData.megaFileId
                     
                     return (
                       <View key={item.id} style={styles.activityItem}>
-                        {hasMegaFile && (
-                          <MegaImage fileId={clothingData.megaFileId} style={styles.itemImage} />
+                        {hasCloudFile && (
+                          <CloudImage fileId={clothingData.megaFileId} style={styles.itemImage} />
                         )}
-                        {!hasMegaFile && imageUri && (
+                        {!hasCloudFile && imageUri && (
                           <Image source={{ uri: imageUri }} style={styles.itemImage} />
                         )}
-                        {!hasMegaFile && !imageUri && (
+                        {!hasCloudFile && !imageUri && (
                           <View style={[styles.itemImage, { backgroundColor: '#333', alignItems: 'center', justifyContent: 'center' }]}>
                             <Text style={{ fontSize: 40 }}>👕</Text>
                           </View>
@@ -1011,7 +1060,7 @@ export default function DashboardScreen({ navigation }: any) {
           try {
             if (credential.type === 'clothing') {
               // Handle clothing separately using ClothesService
-              const clothingItem = {
+              const addedClothing = await ClothesService.addClothingItem({
                 id: credential.id,
                 name: credential.title,
                 category: (credential.data as ClothingItem).category || '',
@@ -1020,37 +1069,65 @@ export default function DashboardScreen({ navigation }: any) {
                 brand: (credential.data as any).brand || '',
                 notes: (credential.data as any).notes || '',
                 imageUri: (credential.data as ClothingItem).imageUri || '',
-                megaFileId: (credential.data as any).megaFileId,
                 createdAt: credential.createdAt.toISOString()
+              })
+              
+              // Create credential with the actual ID and megaFileId from ClothesService
+              const clothingCredential: Credential = {
+                id: addedClothing.id,
+                type: 'clothing',
+                title: addedClothing.name,
+                data: {
+                  imageUri: addedClothing.imageUri || '',
+                  name: addedClothing.name,
+                  category: addedClothing.category,
+                  color: addedClothing.color,
+                  size: addedClothing.size,
+                  brand: addedClothing.brand,
+                  notes: addedClothing.notes,
+                  megaFileId: addedClothing.megaFileId
+                } as ClothingItem,
+                createdAt: new Date(addedClothing.createdAt)
               }
               
-              // Get all current clothes
-              const allClothes = credentials
-                .filter(c => c.type === 'clothing')
-                .map(c => ({
-                  id: c.id,
-                  name: c.title,
-                  category: (c.data as ClothingItem).category || '',
-                  color: (c.data as any).color || '',
-                  size: (c.data as any).size || '',
-                  brand: (c.data as any).brand || '',
-                  notes: (c.data as any).notes || '',
-                  megaFileId: (c.data as any).megaFileId,
-                  imageUri: (c.data as ClothingItem).imageUri,
-                  createdAt: c.createdAt.toISOString()
-                }))
+              // Add to local state with correct data
+              setCredentials([...credentials, clothingCredential])
+            } else if (credential.type === 'personal') {
+              // Handle personal separately using PersonService
+              const personData = credential.data as PersonalInfo
+              const addedPerson = await PersonService.addPerson({
+                name: personData.name,
+                details: personData.details,
+                imageUri: personData.imageUri
+              })
               
-              await ClothesService.addClothingItem(clothingItem, allClothes)
+              // Create credential with the actual ID from PersonService
+              const personCredential: Credential = {
+                id: addedPerson.id,
+                type: 'personal',
+                title: addedPerson.name,
+                data: {
+                  name: addedPerson.name,
+                  details: addedPerson.details,
+                  imageUri: addedPerson.imageUri,
+                  megaFileId: addedPerson.megaFileId
+                },
+                createdAt: new Date(addedPerson.createdAt)
+              }
               
-              // Add to local state
-              setCredentials([...credentials, credential])
+              // Add to local state with correct ID
+              setCredentials([...credentials, personCredential])
             } else {
               // Handle other credentials normally
-              const updatedCredentials = await CredentialsService.addCredential(credential, credentials.filter(c => c.type !== 'clothing'))
+              const updatedCredentials = await CredentialsService.addCredential(
+                credential, 
+                credentials.filter(c => c.type !== 'clothing' && c.type !== 'personal')
+              )
               
-              // Merge with clothes in state
+              // Merge with clothes and persons in state
               const clothesInState = credentials.filter(c => c.type === 'clothing')
-              setCredentials([...clothesInState, ...updatedCredentials])
+              const personsInState = credentials.filter(c => c.type === 'personal')
+              setCredentials([...clothesInState, ...personsInState, ...updatedCredentials])
             }
             
             setShowAddModal(false)
@@ -1199,6 +1276,22 @@ export default function DashboardScreen({ navigation }: any) {
                       setAutoCurrentLocation(newLocationData)
                       setShowMapModal(false)
                       
+                      // Save manual location update to cloud with history tracking
+                      try {
+                        const addressParts = address.split(',').map(part => part.trim())
+                        await LocationService.updateLocation({
+                          address,
+                          latitude: selectedMapLocation.latitude,
+                          longitude: selectedMapLocation.longitude,
+                          city: addressParts.length > 1 ? addressParts[1] : undefined,
+                          country: addressParts.length > 0 ? addressParts[addressParts.length - 1] : undefined,
+                          source: 'manual'
+                        })
+                        console.log("📍 Manual location saved to cloud with history tracking")
+                      } catch (error) {
+                        console.error("❌ Failed to save manual location to cloud:", error)
+                      }
+                      
                       Alert.alert(
                         translations.success[language],
                         language === "en" ? "Location updated!" : "Position mise à jour !",
@@ -1250,6 +1343,7 @@ function AddCredentialModal({
   const [expiryDate, setExpiryDate] = useState("")
   const [cvv, setCvv] = useState("")
   const [email, setEmail] = useState("")
+  const [emailPassword, setEmailPassword] = useState("")
   const [phone, setPhone] = useState("")
   const [address, setAddress] = useState("")
   const [locationLabel, setLocationLabel] = useState("")
@@ -1340,7 +1434,16 @@ function AddCredentialModal({
         Alert.alert(translations.error[language], translations.enterEmail[language])
         return
       }
-      data = email
+      if (!emailPassword) {
+        Alert.alert(
+          translations.error[language], 
+          language === "en" 
+            ? "Please enter the app password/key for this email" 
+            : "Veuillez saisir le mot de passe/clé d'application pour cet e-mail"
+        )
+        return
+      }
+      data = { email, password: emailPassword }
     } else if (type === "phone") {
       if (!phone) {
         Alert.alert(translations.error[language], translations.enterPhone[language])
@@ -1402,6 +1505,7 @@ function AddCredentialModal({
     setExpiryDate("")
     setCvv("")
     setEmail("")
+    setEmailPassword("")
     setPhone("")
     setAddress("")
     setLocationLabel("")
@@ -1494,15 +1598,31 @@ function AddCredentialModal({
             )}
 
             {type === "email" && (
-              <TextInput
-                style={styles.modalInput}
-                placeholder={translations.emailAddress[language]}
-                placeholderTextColor="#64748b"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
+              <>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder={translations.emailAddress[language]}
+                  placeholderTextColor="#64748b"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder={translations.emailPasswordPlaceholder[language]}
+                  placeholderTextColor="#64748b"
+                  value={emailPassword}
+                  onChangeText={setEmailPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+                <Text style={styles.emailPasswordHint}>
+                  💡 {language === "en" 
+                    ? "For Gmail: Generate an App Password in your Google Account settings" 
+                    : "Pour Gmail : Générez un mot de passe d'application dans les paramètres de votre compte Google"}
+                </Text>
+              </>
             )}
 
             {type === "phone" && (
@@ -1872,6 +1992,14 @@ const styles = StyleSheet.create({
   },
   modalInputHalf: {
     flex: 1,
+  },
+  emailPasswordHint: {
+    fontSize: 13,
+    color: "#94a3b8",
+    marginTop: -8,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+    lineHeight: 18,
   },
   imagePickerButton: {
     height: 200,

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from "react"
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Image, Alert, Modal, Dimensions, Animated } from "react-native"
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Image, Alert, Modal, Dimensions, Animated, ActivityIndicator } from "react-native"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { LinearGradient } from "expo-linear-gradient"
 import * as ImagePicker from "expo-image-picker"
 import { Audio } from "expo-av"
 import { useLanguage } from "../../utils/LanguageContext"
+import { StorageService } from "../../services/storage"
 
 const { width, height } = Dimensions.get("window")
 
@@ -126,11 +127,80 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
   const [isRecording, setIsRecording] = useState(false)
   const [recording, setRecording] = useState<Audio.Recording | null>(null)
   const [voiceUri, setVoiceUri] = useState("")
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deletePassword, setDeletePassword] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const handleLogout = () => {
     onLogout()
     // Simply go back, the App.tsx will handle showing auth screen
     navigation.goBack()
+  }
+
+  const handleDeleteAccount = async () => {
+    if (!deletePassword.trim()) {
+      Alert.alert(t.error, t.enterPasswordToDelete)
+      return
+    }
+
+    Alert.alert(
+      t.deleteAccountConfirm,
+      t.deleteAccountWarning,
+      [
+        {
+          text: t.cancel,
+          style: "cancel"
+        },
+        {
+          text: t.deleteAccountConfirm,
+          style: "destructive",
+          onPress: async () => {
+            setIsDeleting(true)
+            try {
+              const token = await StorageService.getToken()
+              if (!token) {
+                Alert.alert(t.error, "Not authenticated")
+                return
+              }
+
+              const response = await fetch("http://10.208.211.170:5000/api/user/delete", {
+                method: "DELETE",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                  password: deletePassword
+                })
+              })
+
+              if (response.ok) {
+                Alert.alert(t.success, t.accountDeleted, [
+                  {
+                    text: "OK",
+                    onPress: async () => {
+                      await StorageService.clearAuth()
+                      onLogout()
+                    }
+                  }
+                ])
+              } else {
+                const error = await response.json()
+                Alert.alert(t.error, error.error || t.deletionFailed)
+              }
+            } catch (error) {
+              console.error("Delete account error:", error)
+              Alert.alert(t.error, t.deletionFailed)
+            } finally {
+              setIsDeleting(false)
+              setShowDeleteModal(false)
+              setDeletePassword("")
+            }
+          }
+        }
+      ]
+    )
   }
 
   const text = {
@@ -152,11 +222,18 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
       changeVoice: "Change Voice",
       changeVoiceDesc: "Re-record your voice",
       logout: "Logout",
+      deleteAccount: "Delete Account",
+      deleteAccountConfirm: "Delete Account Permanently",
+      deleteAccountWarning: "This will permanently delete your account, all data, and files from cloud storage. This action cannot be undone.",
+      enterPasswordToDelete: "Enter your password to confirm deletion",
+      accountDeleted: "Account deleted successfully",
+      deletionFailed: "Failed to delete account",
       emailModal: "Change Email",
       passwordModal: "Change Password",
       photoModal: "Update Photo",
       voiceModal: "Update Voice",
       newEmail: "New Email",
+      password: "Password",
       currentPassword: "Current Password",
       newPassword: "New Password",
       confirmPassword: "Confirm New Password",
@@ -199,11 +276,18 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
       changeVoice: "Changer la voix",
       changeVoiceDesc: "Réenregistrer votre voix",
       logout: "Déconnexion",
+      deleteAccount: "Supprimer le compte",
+      deleteAccountConfirm: "Supprimer le compte définitivement",
+      deleteAccountWarning: "Cela supprimera définitivement votre compte, toutes les données et les fichiers du stockage cloud. Cette action est irréversible.",
+      enterPasswordToDelete: "Entrez votre mot de passe pour confirmer la suppression",
+      accountDeleted: "Compte supprimé avec succès",
+      deletionFailed: "Échec de la suppression du compte",
       emailModal: "Changer l'e-mail",
       passwordModal: "Changer le mot de passe",
       photoModal: "Mettre à jour la photo",
       voiceModal: "Mettre à jour la voix",
       newEmail: "Nouvel e-mail",
+      password: "Mot de passe",
       currentPassword: "Mot de passe actuel",
       newPassword: "Nouveau mot de passe",
       confirmPassword: "Confirmer le nouveau mot de passe",
@@ -296,39 +380,132 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
     }
   }
 
-  const handleSaveChanges = () => {
-    if (changeType === "email") {
-      if (!email.trim()) {
-        Alert.alert(t.error, t.emailError)
-        return
+  const handleSaveChanges = async () => {
+    setIsLoading(true)
+    try {
+      const token = await StorageService.getToken()
+      
+      if (changeType === "email") {
+        if (!email.trim()) {
+          Alert.alert(t.error, t.emailError)
+          return
+        }
+        
+        // Update email in database
+        const response = await fetch("http://10.208.211.170:5000/api/user/email", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ email: email.trim() })
+        })
+        
+        if (!response.ok) {
+          const error = await response.json()
+          Alert.alert(t.error, error.error || "Failed to update email")
+          return
+        }
+        
+        Alert.alert(t.success, t.emailSuccess)
+      } else if (changeType === "password") {
+        if (!currentPassword || !newPassword || !confirmPassword) {
+          Alert.alert(t.error, language === "en" ? "Please fill all password fields" : "Veuillez remplir tous les champs")
+          return
+        }
+        if (newPassword !== confirmPassword) {
+          Alert.alert(t.error, t.passwordError)
+          return
+        }
+        
+        // Update password in database
+        const response = await fetch("http://10.208.211.170:5000/api/user/password", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            current_password: currentPassword,
+            new_password: newPassword
+          })
+        })
+        
+        if (!response.ok) {
+          const error = await response.json()
+          Alert.alert(t.error, error.error || "Failed to update password")
+          return
+        }
+        
+        Alert.alert(t.success, t.passwordSuccess)
+      } else if (changeType === "photo") {
+        if (!photoUri) {
+          Alert.alert(t.error, t.photoError)
+          return
+        }
+        
+        // Upload photo to cloud storage
+        const formData = new FormData()
+        formData.append('photo', {
+          uri: photoUri,
+          type: 'image/jpeg',
+          name: 'profile_photo.jpg'
+        } as any)
+        
+        const photoResponse = await fetch("http://10.208.211.170:5000/api/user/photo", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`
+          },
+          body: formData
+        })
+        
+        if (!photoResponse.ok) {
+          const error = await photoResponse.json()
+          Alert.alert(t.error, error.error || "Failed to update photo")
+          return
+        }
+        
+        Alert.alert(t.success, t.photoSuccess)
+      } else if (changeType === "voice") {
+        if (!voiceUri) {
+          Alert.alert(t.error, t.voiceError)
+          return
+        }
+        
+        // Upload voice to cloud storage
+        const formData = new FormData()
+        formData.append('voice', {
+          uri: voiceUri,
+          type: 'audio/m4a',
+          name: 'profile_voice.m4a'
+        } as any)
+        
+        const voiceResponse = await fetch("http://10.208.211.170:5000/api/user/voice", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`
+          },
+          body: formData
+        })
+        
+        if (!voiceResponse.ok) {
+          const error = await voiceResponse.json()
+          Alert.alert(t.error, error.error || "Failed to update voice")
+          return
+        }
+        
+        Alert.alert(t.success, t.voiceSuccess)
       }
-      Alert.alert(t.success, t.emailSuccess)
-    } else if (changeType === "password") {
-      if (!currentPassword || !newPassword || !confirmPassword) {
-        Alert.alert(t.error, language === "en" ? "Please fill all password fields" : "Veuillez remplir tous les champs")
-        return
-      }
-      if (newPassword !== confirmPassword) {
-        Alert.alert(t.error, t.passwordError)
-        return
-      }
-      Alert.alert(t.success, t.passwordSuccess)
-    } else if (changeType === "photo") {
-      if (!photoUri) {
-        Alert.alert(t.error, t.photoError)
-        return
-      }
-      Alert.alert(t.success, t.photoSuccess)
-    } else if (changeType === "voice") {
-      if (!voiceUri) {
-        Alert.alert(t.error, t.voiceError)
-        return
-      }
-      Alert.alert(t.success, t.voiceSuccess)
+      
+      setShowChangeModal(false)
+      resetForm()
+    } catch (error) {
+      console.error("Error saving changes:", error)
+      Alert.alert(t.error, language === "en" ? "Failed to save changes" : "Échec de l'enregistrement")
+    } finally {
+      setIsLoading(false)
     }
-    
-    setShowChangeModal(false)
-    resetForm()
   }
 
   const resetForm = () => {
@@ -475,10 +652,16 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
           </TouchableOpacity>
         </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutButtonText}>{t.logout}</Text>
-        </TouchableOpacity>
+        {/* Action Buttons */}
+        <View style={styles.actionButtonsContainer}>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>{t.logout}</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.deleteAccountButton} onPress={() => setShowDeleteModal(true)}>
+            <Text style={styles.deleteAccountButtonText}>{t.deleteAccount}</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       {/* Change Modal */}
@@ -601,8 +784,80 @@ export default function SettingsScreen({ navigation, onLogout, botVariant, setBo
               >
                 <Text style={styles.modalCancelText}>{t.cancel}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalSaveButton} onPress={handleSaveChanges}>
-                <Text style={styles.modalSaveText}>{t.save}</Text>
+              <TouchableOpacity 
+                style={[styles.modalSaveButton, isLoading && { opacity: 0.6 }]} 
+                onPress={handleSaveChanges}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.modalSaveText}>{t.save}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Account Modal */}
+      <Modal
+        visible={showDeleteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowDeleteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{t.deleteAccount}</Text>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={() => {
+                  setShowDeleteModal(false)
+                  setDeletePassword("")
+                }}
+              >
+                <Text style={styles.modalCloseText}>×</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalContent}>
+              <Text style={styles.deleteWarningText}>{t.deleteAccountWarning}</Text>
+              
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>{t.enterPasswordToDelete}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t.password}
+                  placeholderTextColor="#64748b"
+                  value={deletePassword}
+                  onChangeText={setDeletePassword}
+                  secureTextEntry
+                />
+              </View>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => {
+                  setShowDeleteModal(false)
+                  setDeletePassword("")
+                }}
+              >
+                <Text style={styles.modalCancelText}>{t.cancel}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.deleteConfirmButton, (isDeleting || !deletePassword) && { opacity: 0.6 }]} 
+                onPress={handleDeleteAccount}
+                disabled={isDeleting || !deletePassword}
+              >
+                {isDeleting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text style={styles.deleteConfirmButtonText}>{t.deleteAccount}</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -736,14 +991,33 @@ const styles = StyleSheet.create({
     color: "#64748b",
     marginLeft: 8,
   },
+  actionButtonsContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 20,
+  },
   logoutButton: {
+    flex: 1,
     backgroundColor: "#ef4444",
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
-    marginTop: 20,
   },
   logoutButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+  deleteAccountButton: {
+    flex: 1,
+    backgroundColor: "#991b1b",
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#dc2626",
+  },
+  deleteAccountButtonText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#ffffff",
@@ -903,5 +1177,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#0ea5e9",
+  },
+  modalContent: {
+    padding: 20,
+  },
+  deleteWarningText: {
+    fontSize: 14,
+    color: "#ef4444",
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    marginBottom: 16,
+    lineHeight: 20,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#94a3b8",
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: "#ffffff",
+  },
+  deleteConfirmButton: {
+    flex: 1,
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  deleteConfirmButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ef4444",
   },
 })

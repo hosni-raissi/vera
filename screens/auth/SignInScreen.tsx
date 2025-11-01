@@ -56,9 +56,9 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
   }, [recording])
 
   const handleSignIn = async () => {
-    // IMPORTANT: Login voice is NEVER uploaded to MEGA
+    // IMPORTANT: Login voice is NEVER uploaded to cloud storage
     // It's only sent to /auth/verify-voice for comparison, then deleted
-    // Only the registration voice is stored in MEGA as reference
+    // Only the registration voice is stored in cloud as reference
     
     // Check if user has recorded voice
     const hasVoiceRecording = voiceRecordingUri !== null
@@ -130,9 +130,9 @@ export default function SignInScreen({ navigation, onSignIn }: any) {
         throw new Error('Login failed')
       }
       
-      // Note: Login voice is NOT saved to MEGA - only used for verification
+      // Note: Login voice is NOT saved to cloud - only used for verification
       // The reference voice from registration is already stored
-      console.log('✓ Sign-in successful - NO voice upload to MEGA during login')
+      console.log('✓ Sign-in successful - NO voice upload to cloud during login')
       
       setLoading(false)
       

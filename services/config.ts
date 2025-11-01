@@ -2,8 +2,8 @@
 export const API_CONFIG = {
   // IMPORTANT: Update this based on your testing environment
   
-  // Current server IP from backend
-  BASE_URL: 'http://10.142.215.170:5000/api',
+  // Current server IP from backend (Updated: 2025-11-01)
+  BASE_URL: 'http://10.208.211.170:5000/api',
   
   // Alternative URLs (uncomment if needed):
   // For Android Emulator:
@@ -14,6 +14,9 @@ export const API_CONFIG = {
   
   // For localhost testing:
   // BASE_URL: 'http://127.0.0.1:5000/api',
+  
+  // Old IP (keep for reference):
+  // BASE_URL: 'http://10.142.215.170:5000/api',
   
   // Timeout for API requests (in milliseconds)
   TIMEOUT: 30000,
