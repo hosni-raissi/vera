@@ -15,7 +15,11 @@
     "ios": {
       "supportsTabletMode": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Allow Vera to access your microphone for voice recording"
+        "NSMicrophoneUsageDescription": "Allow Vera to access your microphone for voice recording",
+        "NSLocationWhenInUseUsageDescription": "Allow Vera to access your location to track your current position"
+      },
+      "config": {
+        "googleMapsApiKey": "AIzaSyB2t4hOvy4D0fX0nb8T_By3xp4ibdkjWTQ"
       }
     },
     "android": {
@@ -24,8 +28,15 @@
         "backgroundColor": "#0f172a"
       },
       "permissions": [
-        "RECORD_AUDIO"
-      ]
+        "RECORD_AUDIO",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyB2t4hOvy4D0fX0nb8T_By3xp4ibdkjWTQ"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"

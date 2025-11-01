@@ -1,12 +1,52 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Modal, Dimensions, Animated, Image, Alert } from "react-native"
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, TextInput, Modal, Dimensions, Animated, Image, Alert, ActivityIndicator } from "react-native"
 import { LinearGradient } from "expo-linear-gradient"
 import { useSafeAreaInsets } from "react-native-safe-area-context"
 import * as ImagePicker from "expo-image-picker"
 import * as Location from "expo-location"
 import { useLanguage } from "../../utils/LanguageContext"
+import CredentialsService from "../../services/credentialsService"
+import ClothesService from "../../services/clothesService"
+
+// Component to load and display images from MEGA
+const MegaImage = ({ fileId, style }: { fileId: string; style: any }) => {
+  const [imageUri, setImageUri] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const loadImage = async () => {
+      try {
+        const uri = await ClothesService.getImageUrl(fileId)
+        setImageUri(uri)
+      } catch (error) {
+        console.error('Error loading MEGA image:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadImage()
+  }, [fileId])
+
+  if (loading) {
+    return (
+      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#333' }]}>
+        <ActivityIndicator color="#fff" />
+      </View>
+    )
+  }
+
+  if (!imageUri) {
+    return (
+      <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#333' }]}>
+        <Text style={{ fontSize: 40 }}>👕</Text>
+      </View>
+    )
+  }
+
+  return <Image source={{ uri: imageUri }} style={style} />
+}
 
 
 const { width, height } = Dimensions.get("window")
@@ -81,11 +121,17 @@ interface LocationData {
   label: string
 }
 
+interface PersonalInfo {
+  name: string
+  details: string
+  imageUri?: string
+}
+
 interface Credential {
   id: string
   type: CredentialType
   title: string
-  data: ClothingItem | CreditCard | LocationData | string | string[]
+  data: ClothingItem | CreditCard | LocationData | PersonalInfo | string | string[]
   createdAt: Date
 }
 
@@ -95,8 +141,23 @@ export default function DashboardScreen({ navigation }: any) {
   const [stars] = useState(() => generateStars(80))
   const shootingStarAnim = useRef(new Animated.Value(-100)).current
   const [credentials, setCredentials] = useState<Credential[]>([])
+  const [loading, setLoading] = useState(true)
+  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set())
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedType, setSelectedType] = useState<CredentialType | null>(null)
+  // Location state for auto-capture
+  const [initialLocationData, setInitialLocationData] = useState<{
+    address: string
+    latitude: number
+    longitude: number
+  } | null>(null)
+  // Current location that updates every 3 minutes
+  const [autoCurrentLocation, setAutoCurrentLocation] = useState<LocationData | null>(null)
+  const [locationPermissionGranted, setLocationPermissionGranted] = useState(false)
+  const locationUpdateInterval = useRef<NodeJS.Timeout | null>(null)
+  // Map modal state
+  const [showMapModal, setShowMapModal] = useState(false)
+  const [selectedMapLocation, setSelectedMapLocation] = useState<{ latitude: number; longitude: number } | null>(null)
 
   const translations = {
     title: { en: "My Vault", fr: "Mon Coffre" },
@@ -172,6 +233,134 @@ export default function DashboardScreen({ navigation }: any) {
     shootingStar()
   }, [])
 
+  // Function to update current location
+  const updateCurrentLocation = async (): Promise<LocationData | null> => {
+    try {
+      // Check if permission already granted
+      const { status: currentStatus } = await Location.getForegroundPermissionsAsync()
+      
+      if (currentStatus !== "granted") {
+        // Request permission
+        const { status } = await Location.requestForegroundPermissionsAsync()
+        if (status !== "granted") {
+          console.log("Location permission not granted")
+          setLocationPermissionGranted(false)
+          return null
+        }
+        setLocationPermissionGranted(true)
+      } else {
+        setLocationPermissionGranted(true)
+      }
+
+      // Get current location
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      })
+
+      // Reverse geocoding to get address
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      })
+
+      let address = "Unknown Location"
+      if (geocode[0]) {
+        address = `${geocode[0].street || ""}, ${geocode[0].city || ""}, ${geocode[0].region || ""}, ${geocode[0].country || ""}`.trim()
+      }
+
+      const locationData: LocationData = {
+        address,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        label: "Current Location"
+      }
+
+      setAutoCurrentLocation(locationData)
+      console.log("Current location updated:", address)
+      return locationData
+    } catch (error) {
+      console.error("Failed to update current location:", error)
+      return null
+    }
+  }
+
+  // Load credentials from MEGA on mount
+  useEffect(() => {
+    loadCredentialsFromCloud()
+  }, [])
+
+  const loadCredentialsFromCloud = async () => {
+    try {
+      setLoading(true)
+      
+      // First, try to upgrade folder structure if needed
+      try {
+        await ClothesService.upgradeFolderStructure()
+      } catch (upgradeError) {
+        console.log('Folder upgrade not needed or failed:', upgradeError)
+        // Continue even if upgrade fails - might already be upgraded
+      }
+      
+      // Load regular credentials from MEGA
+      const loadedCredentials = await CredentialsService.loadCredentials()
+      
+      // Load clothes from dedicated clothes folder
+      const loadedClothes = await ClothesService.loadClothes()
+      
+      // Convert clothes to credential format for display
+      const clothesCredentials: Credential[] = loadedClothes.map(item => ({
+        id: item.id,
+        type: 'clothing' as CredentialType,
+        title: item.name,
+        data: {
+          imageUri: item.imageUri || '',
+          megaFileId: item.megaFileId,
+          name: item.name,
+          category: item.category,
+          color: item.color,
+          size: item.size,
+          brand: item.brand,
+          notes: item.notes
+        },
+        createdAt: new Date(item.createdAt)
+      }))
+      
+      // Merge clothes with other credentials
+      const allCredentials = [...clothesCredentials, ...loadedCredentials.filter(c => c.type !== 'clothing')]
+      
+      setCredentials(allCredentials)
+      console.log('✓ Loaded', allCredentials.length, 'credentials from cloud (', clothesCredentials.length, 'clothes)')
+    } catch (error) {
+      console.error('Failed to load credentials:', error)
+      Alert.alert(
+        translations.error[language],
+        language === "en" 
+          ? "Failed to load your data. Please check your connection." 
+          : "Échec du chargement de vos données. Vérifiez votre connexion."
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Auto-update location every 3 minutes
+  useEffect(() => {
+    // Initial location update
+    updateCurrentLocation()
+
+    // Set up interval for updates every 3 minutes (180000 ms)
+    locationUpdateInterval.current = setInterval(() => {
+      updateCurrentLocation()
+    }, 180000)
+
+    // Cleanup on unmount
+    return () => {
+      if (locationUpdateInterval.current) {
+        clearInterval(locationUpdateInterval.current)
+      }
+    }
+  }, [])
+
   const getTypeIcon = (type: CredentialType) => {
     switch (type) {
       case "clothing": return "👕"
@@ -194,12 +383,78 @@ export default function DashboardScreen({ navigation }: any) {
     }
   }
 
-  const handleAddCredential = (type: CredentialType) => {
+  const handleAddCredential = async (type: CredentialType) => {
     setSelectedType(type)
-    setShowAddModal(true)
+    
+    // Use current location when adding a location credential
+    if (type === "location") {
+      // Check if we have current location already
+      if (autoCurrentLocation) {
+        // Use the automatically updated current location
+        setInitialLocationData({
+          address: autoCurrentLocation.address,
+          latitude: autoCurrentLocation.latitude,
+          longitude: autoCurrentLocation.longitude,
+        })
+        setShowAddModal(true)
+      } else {
+        // If no current location yet, try to get it now
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync()
+          if (status !== "granted") {
+            Alert.alert(
+              translations.permissionDenied[language], 
+              translations.locationPermission[language],
+              [
+                { text: translations.cancel[language], style: "cancel" },
+                { 
+                  text: "Settings", 
+                  onPress: () => {
+                    Alert.alert(
+                      language === "en" ? "Info" : "Info",
+                      language === "en" 
+                        ? "Please enable location permission in your device settings to use this feature."
+                        : "Veuillez activer l'autorisation de localisation dans les paramètres de votre appareil."
+                    )
+                  }
+                }
+              ]
+            )
+            return
+          }
+
+          // Get current location now
+          const newLocation = await updateCurrentLocation()
+          
+          if (newLocation) {
+            setInitialLocationData({
+              address: newLocation.address,
+              latitude: newLocation.latitude,
+              longitude: newLocation.longitude,
+            })
+          }
+          setShowAddModal(true)
+        } catch (error) {
+          console.error("Location error:", error)
+          Alert.alert(
+            translations.error[language], 
+            translations.failedToGetLocation[language],
+            [
+              { text: translations.cancel[language], style: "cancel" },
+              { text: language === "en" ? "Retry" : "Réessayer", onPress: () => handleAddCredential(type) }
+            ]
+          )
+        }
+      }
+    } else {
+      // For other types, just open the modal
+      setShowAddModal(true)
+    }
   }
 
   const handleDeleteCredential = (id: string) => {
+    if (deletingIds.has(id)) return // Already deleting
+    
     Alert.alert(
       translations.deleteTitle[language],
       translations.deleteMessage[language],
@@ -208,7 +463,59 @@ export default function DashboardScreen({ navigation }: any) {
         { 
           text: translations.delete[language], 
           style: "destructive",
-          onPress: () => setCredentials(prev => prev.filter(c => c.id !== id))
+          onPress: async () => {
+            try {
+              setDeletingIds(prev => new Set(prev).add(id))
+              
+              // Find the credential to delete
+              const credentialToDelete = credentials.find(c => c.id === id)
+              
+              if (credentialToDelete?.type === 'clothing') {
+                // Delete from clothes service
+                const allClothes = credentials
+                  .filter(c => c.type === 'clothing')
+                  .map(c => ({
+                    id: c.id,
+                    name: c.title,
+                    category: (c.data as ClothingItem).category || '',
+                    color: (c.data as any).color || '',
+                    size: (c.data as any).size || '',
+                    brand: (c.data as any).brand || '',
+                    notes: (c.data as any).notes || '',
+                    megaFileId: (c.data as any).megaFileId,
+                    imageUri: (c.data as ClothingItem).imageUri,
+                    createdAt: c.createdAt.toISOString()
+                  }))
+                
+                await ClothesService.deleteClothingItem(id, allClothes)
+              } else {
+                // Delete from regular credentials service
+                const updatedCredentials = await CredentialsService.deleteCredential(id, credentials.filter(c => c.type !== 'clothing'))
+              }
+              
+              // Remove from local state
+              setCredentials(credentials.filter(c => c.id !== id))
+              
+              Alert.alert(
+                translations.success[language],
+                language === "en" ? "Deleted successfully" : "Supprimé avec succès"
+              )
+            } catch (error) {
+              console.error('Failed to delete credential:', error)
+              Alert.alert(
+                translations.error[language],
+                language === "en" 
+                  ? "Failed to delete. Please try again." 
+                  : "Échec de la suppression. Réessayez."
+              )
+            } finally {
+              setDeletingIds(prev => {
+                const newSet = new Set(prev)
+                newSet.delete(id)
+                return newSet
+              })
+            }
+          }
         },
       ]
     )
@@ -303,92 +610,390 @@ export default function DashboardScreen({ navigation }: any) {
         contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 70 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{credentials.length}</Text>
-            <Text style={styles.statLabel}>{language === "en" ? "Total Items" : "Total"}</Text>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#0ea5e9" />
+            <Text style={styles.loadingText}>
+              {language === "en" ? "Loading your data..." : "Chargement de vos données..."}
+            </Text>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{credentials.filter(c => c.type === "card").length}</Text>
-            <Text style={styles.statLabel}>{language === "en" ? "Cards" : "Cartes"}</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statNumber}>{credentials.filter(c => c.type === "clothing").length}</Text>
-            <Text style={styles.statLabel}>{language === "en" ? "Clothes" : "Vêtements"}</Text>
-          </View>
-        </View>
-
-        {/* Add Buttons */}
-        <View style={styles.addButtonsContainer}>
-          <Text style={styles.sectionTitle}>{translations.addCredentials[language]}</Text>
-          <View style={styles.addButtonsGrid}>
-            <TouchableOpacity
-              style={styles.addTypeButton}
-              onPress={() => handleAddCredential("clothing")}
-            >
-              <Text style={styles.addTypeIcon}>👕</Text>
-              <Text style={styles.addTypeText}>{language === "en" ? "Clothing" : "Vêtements"}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.addTypeButton}
-              onPress={() => handleAddCredential("card")}
-            >
-              <Text style={styles.addTypeIcon}>💳</Text>
-              <Text style={styles.addTypeText}>{language === "en" ? "Card" : "Carte"}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.addTypeButton}
-              onPress={() => handleAddCredential("email")}
-            >
-              <Text style={styles.addTypeIcon}>📧</Text>
-              <Text style={styles.addTypeText}>{language === "en" ? "Email" : "E-mail"}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.addTypeButton}
-              onPress={() => handleAddCredential("phone")}
-            >
-              <Text style={styles.addTypeIcon}>📱</Text>
-              <Text style={styles.addTypeText}>{language === "en" ? "Phone" : "Téléphone"}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.addTypeButton}
-              onPress={() => handleAddCredential("location")}
-            >
-              <Text style={styles.addTypeIcon}>📍</Text>
-              <Text style={styles.addTypeText}>{language === "en" ? "Location" : "Position"}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.addTypeButton}
-              onPress={() => handleAddCredential("personal")}
-            >
-              <Text style={styles.addTypeIcon}>👤</Text>
-              <Text style={styles.addTypeText}>{language === "en" ? "Personal" : "Personnel"}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Credentials List */}
-        {credentials.length > 0 && (
-          <View style={styles.credentialsSection}>
-            <Text style={styles.sectionTitle}>{translations.myCredentials[language]}</Text>
-            <View style={styles.credentialsGrid}>
-              {credentials.map(renderCredentialCard)}
+        ) : (
+          <>
+        {/* Activity Blocks */}
+        <View style={styles.activitiesContainer}>
+          
+          {/* Clothing Block */}
+          <View style={styles.activityBlock}>
+            <View style={styles.activityHeader}>
+              <View style={styles.activityTitleRow}>
+                <Text style={styles.activityIcon}>👕</Text>
+                <Text style={styles.activityTitle}>
+                  {language === "en" ? "Clothing" : "Vêtements"}
+                </Text>
+                <View style={styles.activityBadge}>
+                  <Text style={styles.activityBadgeText}>
+                    {credentials.filter(c => c.type === "clothing").length}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => handleAddCredential("clothing")}
+              >
+                <Text style={styles.addButtonText}>+ {language === "en" ? "Add" : "Ajouter"}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.activityContent}>
+              {credentials.filter(c => c.type === "clothing").length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {credentials.filter(c => c.type === "clothing").map(item => {
+                    const clothingData = item.data as any
+                    // Use local imageUri for now (we'll fetch from MEGA if needed)
+                    const imageUri = clothingData.imageUri || null
+                    const hasMegaFile = clothingData.megaFileId
+                    
+                    return (
+                      <View key={item.id} style={styles.activityItem}>
+                        {hasMegaFile && (
+                          <MegaImage fileId={clothingData.megaFileId} style={styles.itemImage} />
+                        )}
+                        {!hasMegaFile && imageUri && (
+                          <Image source={{ uri: imageUri }} style={styles.itemImage} />
+                        )}
+                        {!hasMegaFile && !imageUri && (
+                          <View style={[styles.itemImage, { backgroundColor: '#333', alignItems: 'center', justifyContent: 'center' }]}>
+                            <Text style={{ fontSize: 40 }}>👕</Text>
+                          </View>
+                        )}
+                        <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => handleDeleteCredential(item.id)}
+                          disabled={deletingIds.has(item.id)}
+                        >
+                          {deletingIds.has(item.id) ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.deleteButtonText}>✕</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )
+                  })}
+                </ScrollView>
+              ) : (
+                <Text style={styles.emptyBlockText}>
+                  {language === "en" ? "No items yet. Tap + Add to start." : "Aucun élément. Appuyez sur + Ajouter."}
+                </Text>
+              )}
             </View>
           </View>
-        )}
 
-        {credentials.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>🔐</Text>
-            <Text style={styles.emptyText}>{translations.emptyVault[language]}</Text>
-            <Text style={styles.emptySubtext}>{translations.addFirst[language]}</Text>
+          {/* Credit Cards Block */}
+          <View style={styles.activityBlock}>
+            <View style={styles.activityHeader}>
+              <View style={styles.activityTitleRow}>
+                <Text style={styles.activityIcon}>💳</Text>
+                <Text style={styles.activityTitle}>
+                  {language === "en" ? "Credit Cards" : "Cartes"}
+                </Text>
+                <View style={styles.activityBadge}>
+                  <Text style={styles.activityBadgeText}>
+                    {credentials.filter(c => c.type === "card").length}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => handleAddCredential("card")}
+              >
+                <Text style={styles.addButtonText}>+ {language === "en" ? "Add" : "Ajouter"}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.activityContent}>
+              {credentials.filter(c => c.type === "card").length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {credentials.filter(c => c.type === "card").map(item => (
+                    <View key={item.id} style={styles.cardItem}>
+                      {typeof item.data === "object" && "cardNumber" in item.data && (
+                        <>
+                          <Text style={styles.cardNumber}>•••• {item.data.cardNumber.slice(-4)}</Text>
+                          <Text style={styles.cardHolder}>{item.data.cardHolder}</Text>
+                          <Text style={styles.cardExpiry}>{item.data.expiryDate}</Text>
+                        </>
+                      )}
+                      <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteCredential(item.id)}
+                        disabled={deletingIds.has(item.id)}
+                      >
+                        {deletingIds.has(item.id) ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={styles.deleteButtonText}>✕</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </ScrollView>
+              ) : (
+                <Text style={styles.emptyBlockText}>
+                  {language === "en" ? "No cards saved. Tap + Add to start." : "Aucune carte. Appuyez sur + Ajouter."}
+                </Text>
+              )}
+            </View>
           </View>
+
+          {/* Email Block */}
+          <View style={styles.activityBlock}>
+            <View style={styles.activityHeader}>
+              <View style={styles.activityTitleRow}>
+                <Text style={styles.activityIcon}>�</Text>
+                <Text style={styles.activityTitle}>
+                  {language === "en" ? "Email Addresses" : "Adresses E-mail"}
+                </Text>
+                <View style={styles.activityBadge}>
+                  <Text style={styles.activityBadgeText}>
+                    {credentials.filter(c => c.type === "email").length}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => handleAddCredential("email")}
+              >
+                <Text style={styles.addButtonText}>+ {language === "en" ? "Add" : "Ajouter"}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.activityContent}>
+              {credentials.filter(c => c.type === "email").length > 0 ? (
+                credentials.filter(c => c.type === "email").map(item => (
+                  <View key={item.id} style={styles.listItem}>
+                    <Text style={styles.listItemText} numberOfLines={1}>
+                      {typeof item.data === "string" ? item.data : item.title}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.deleteButtonSmall}
+                      onPress={() => handleDeleteCredential(item.id)}
+                      disabled={deletingIds.has(item.id)}
+                    >
+                      {deletingIds.has(item.id) ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.deleteButtonText}>✕</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyBlockText}>
+                  {language === "en" ? "No emails saved. Tap + Add to start." : "Aucun e-mail. Appuyez sur + Ajouter."}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* Phone Block */}
+          <View style={styles.activityBlock}>
+            <View style={styles.activityHeader}>
+              <View style={styles.activityTitleRow}>
+                <Text style={styles.activityIcon}>📱</Text>
+                <Text style={styles.activityTitle}>
+                  {language === "en" ? "Phone Numbers" : "Téléphones"}
+                </Text>
+                <View style={styles.activityBadge}>
+                  <Text style={styles.activityBadgeText}>
+                    {credentials.filter(c => c.type === "phone").length}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => handleAddCredential("phone")}
+              >
+                <Text style={styles.addButtonText}>+ {language === "en" ? "Add" : "Ajouter"}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.activityContent}>
+              {credentials.filter(c => c.type === "phone").length > 0 ? (
+                credentials.filter(c => c.type === "phone").map(item => (
+                  <View key={item.id} style={styles.listItem}>
+                    <Text style={styles.listItemText} numberOfLines={1}>
+                      {typeof item.data === "string" ? item.data : item.title}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.deleteButtonSmall}
+                      onPress={() => handleDeleteCredential(item.id)}
+                      disabled={deletingIds.has(item.id)}
+                    >
+                      {deletingIds.has(item.id) ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.deleteButtonText}>✕</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyBlockText}>
+                  {language === "en" ? "No phones saved. Tap + Add to start." : "Aucun téléphone. Appuyez sur + Ajouter."}
+                </Text>
+              )}
+            </View>
+          </View>
+
+          {/* Location Block - Shows current auto-updated location */}
+          <View style={styles.activityBlock}>
+            <View style={styles.activityHeader}>
+              <View style={styles.activityTitleRow}>
+                <Text style={styles.activityIcon}>📍</Text>
+                <Text style={styles.activityTitle}>
+                  {language === "en" ? "Current Location" : "Position Actuelle"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.addButton, { backgroundColor: "rgba(34, 197, 94, 0.2)", borderColor: "#22c55e" }]}
+                onPress={async () => {
+                  const newLocation = await updateCurrentLocation()
+                  if (newLocation) {
+                    Alert.alert(
+                      translations.success[language],
+                      language === "en" ? "Location refreshed!" : "Position actualisée !",
+                      [{ text: "OK" }]
+                    )
+                  }
+                }}
+              >
+                <Text style={[styles.addButtonText, { color: "#22c55e" }]}>
+                  🔄 {language === "en" ? "Refresh" : "Actualiser"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.activityContent}>
+              {autoCurrentLocation ? (
+                <View style={styles.currentLocationCard}>
+                  <View style={styles.locationUpdateInfo}>
+                    <Text style={styles.locationUpdateText}>
+                      {language === "en" ? "📡 Auto-updates every 3 minutes" : "📡 Actualisation automatique chaque 3 min"}
+                    </Text>
+                  </View>
+                  <View style={styles.locationDetailsContainer}>
+                    <View style={styles.locationIconContainer}>
+                      <Text style={styles.locationIconLarge}>📍</Text>
+                    </View>
+                    <View style={styles.locationTextContainer}>
+                      <Text style={styles.currentLocationLabel}>{autoCurrentLocation.label}</Text>
+                      <Text style={styles.currentLocationAddress}>{autoCurrentLocation.address}</Text>
+                      <View style={styles.coordsRow}>
+                        <Text style={styles.coordLabel}>
+                          {language === "en" ? "Coordinates:" : "Coordonnées:"}
+                        </Text>
+                        <Text style={styles.currentLocationCoords}>
+                          {autoCurrentLocation.latitude.toFixed(6)}, {autoCurrentLocation.longitude.toFixed(6)}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.changeLocationButton}
+                    onPress={() => {
+                      // Set initial map position to current location
+                      if (autoCurrentLocation) {
+                        setSelectedMapLocation({
+                          latitude: autoCurrentLocation.latitude,
+                          longitude: autoCurrentLocation.longitude,
+                        })
+                      }
+                      setShowMapModal(true)
+                    }}
+                  >
+                    <Text style={styles.changeLocationText}>
+                      ✏️ {language === "en" ? "Change Location" : "Modifier la position"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.locationLoadingContainer}>
+                  <Text style={styles.locationLoadingText}>
+                    {language === "en" ? "🔍 Getting your location..." : "🔍 Récupération de votre position..."}
+                  </Text>
+                  <Text style={styles.locationLoadingSubtext}>
+                    {language === "en" 
+                      ? "Please make sure location permissions are enabled" 
+                      : "Veuillez vous assurer que les autorisations de localisation sont activées"}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Personal Info Block */}
+          <View style={styles.activityBlock}>
+            <View style={styles.activityHeader}>
+              <View style={styles.activityTitleRow}>
+                <Text style={styles.activityIcon}>👤</Text>
+                <Text style={styles.activityTitle}>
+                  {language === "en" ? "Personal Info" : "Infos Personnelles"}
+                </Text>
+                <View style={styles.activityBadge}>
+                  <Text style={styles.activityBadgeText}>
+                    {credentials.filter(c => c.type === "personal").length}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => handleAddCredential("personal")}
+              >
+                <Text style={styles.addButtonText}>+ {language === "en" ? "Add" : "Ajouter"}</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.activityContent}>
+              {credentials.filter(c => c.type === "personal").length > 0 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {credentials.filter(c => c.type === "personal").map(item => {
+                    const personalData = typeof item.data === "object" && "name" in item.data && "details" in item.data ? item.data : null
+                    return (
+                      <View key={item.id} style={styles.personalInfoCard}>
+                        {personalData && (
+                          <>
+                            {personalData.imageUri && (
+                              <Image source={{ uri: personalData.imageUri }} style={styles.personalInfoImage} />
+                            )}
+                            {!personalData.imageUri && (
+                              <View style={styles.personalInfoImagePlaceholder}>
+                                <Text style={styles.personalInfoImagePlaceholderText}>👤</Text>
+                              </View>
+                            )}
+                            <Text style={styles.personalInfoName}>{personalData.name}</Text>
+                            <Text style={styles.personalInfoDetails} numberOfLines={2}>{personalData.details}</Text>
+                          </>
+                        )}
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => handleDeleteCredential(item.id)}
+                          disabled={deletingIds.has(item.id)}
+                        >
+                          {deletingIds.has(item.id) ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={styles.deleteButtonText}>✕</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )
+                  })}
+                </ScrollView>
+              ) : (
+                <Text style={styles.emptyBlockText}>
+                  {language === "en" ? "No personal info saved. Tap + Add to start." : "Aucune info. Appuyez sur + Ajouter."}
+                </Text>
+              )}
+            </View>
+          </View>
+
+        </View>
+        </>
         )}
       </ScrollView>
 
@@ -396,18 +1001,226 @@ export default function DashboardScreen({ navigation }: any) {
       <AddCredentialModal
         visible={showAddModal}
         type={selectedType}
+        initialLocationData={initialLocationData}
         onClose={() => {
           setShowAddModal(false)
           setSelectedType(null)
+          setInitialLocationData(null) // Clear location data when closing
         }}
-        onAdd={(credential) => {
-          setCredentials(prev => [credential, ...prev])
-          setShowAddModal(false)
-          setSelectedType(null)
+        onAdd={async (credential) => {
+          try {
+            if (credential.type === 'clothing') {
+              // Handle clothing separately using ClothesService
+              const clothingItem = {
+                id: credential.id,
+                name: credential.title,
+                category: (credential.data as ClothingItem).category || '',
+                color: (credential.data as any).color || '',
+                size: (credential.data as any).size || '',
+                brand: (credential.data as any).brand || '',
+                notes: (credential.data as any).notes || '',
+                imageUri: (credential.data as ClothingItem).imageUri || '',
+                megaFileId: (credential.data as any).megaFileId,
+                createdAt: credential.createdAt.toISOString()
+              }
+              
+              // Get all current clothes
+              const allClothes = credentials
+                .filter(c => c.type === 'clothing')
+                .map(c => ({
+                  id: c.id,
+                  name: c.title,
+                  category: (c.data as ClothingItem).category || '',
+                  color: (c.data as any).color || '',
+                  size: (c.data as any).size || '',
+                  brand: (c.data as any).brand || '',
+                  notes: (c.data as any).notes || '',
+                  megaFileId: (c.data as any).megaFileId,
+                  imageUri: (c.data as ClothingItem).imageUri,
+                  createdAt: c.createdAt.toISOString()
+                }))
+              
+              await ClothesService.addClothingItem(clothingItem, allClothes)
+              
+              // Add to local state
+              setCredentials([...credentials, credential])
+            } else {
+              // Handle other credentials normally
+              const updatedCredentials = await CredentialsService.addCredential(credential, credentials.filter(c => c.type !== 'clothing'))
+              
+              // Merge with clothes in state
+              const clothesInState = credentials.filter(c => c.type === 'clothing')
+              setCredentials([...clothesInState, ...updatedCredentials])
+            }
+            
+            setShowAddModal(false)
+            setSelectedType(null)
+            setInitialLocationData(null)
+            Alert.alert(
+              translations.success[language],
+              language === "en" ? "Saved successfully" : "Enregistré avec succès"
+            )
+          } catch (error) {
+            console.error('Failed to add credential:', error)
+            Alert.alert(
+              translations.error[language],
+              language === "en" 
+                ? "Failed to save. Please try again." 
+                : "Échec de l'enregistrement. Réessayez."
+            )
+          }
         }}
         translations={translations}
         language={language}
       />
+
+      {/* Location Edit Modal */}
+      <Modal visible={showMapModal} animationType="slide" transparent={false}>
+        <View style={styles.mapModalContainer}>
+          <View style={styles.mapHeader}>
+            <Text style={styles.mapTitle}>
+              {language === "en" ? "Edit Location" : "Modifier la position"}
+            </Text>
+            <TouchableOpacity 
+              onPress={() => setShowMapModal(false)} 
+              style={styles.mapCloseButton}
+            >
+              <Text style={styles.mapCloseButtonText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.mapContent}>
+            <View style={styles.locationEditSection}>
+              <Text style={styles.locationEditLabel}>
+                {language === "en" ? "Current Coordinates" : "Coordonnées actuelles"}
+              </Text>
+              {selectedMapLocation && (
+                <View style={styles.currentCoordsDisplay}>
+                  <Text style={styles.coordDisplayText}>
+                    📍 Latitude: {selectedMapLocation.latitude.toFixed(6)}
+                  </Text>
+                  <Text style={styles.coordDisplayText}>
+                    📍 Longitude: {selectedMapLocation.longitude.toFixed(6)}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.locationEditSection}>
+              <Text style={styles.locationEditLabel}>
+                {language === "en" ? "Enter New Coordinates" : "Entrer nouvelles coordonnées"}
+              </Text>
+              <TextInput
+                style={styles.coordInput}
+                placeholder={language === "en" ? "Latitude (e.g., 36.8065)" : "Latitude (ex: 36.8065)"}
+                placeholderTextColor="#64748b"
+                keyboardType="numeric"
+                value={selectedMapLocation?.latitude.toString() || ""}
+                onChangeText={(text) => {
+                  const lat = parseFloat(text)
+                  if (!isNaN(lat) && selectedMapLocation) {
+                    setSelectedMapLocation({ ...selectedMapLocation, latitude: lat })
+                  }
+                }}
+              />
+              <TextInput
+                style={styles.coordInput}
+                placeholder={language === "en" ? "Longitude (e.g., 10.1815)" : "Longitude (ex: 10.1815)"}
+                placeholderTextColor="#64748b"
+                keyboardType="numeric"
+                value={selectedMapLocation?.longitude.toString() || ""}
+                onChangeText={(text) => {
+                  const lng = parseFloat(text)
+                  if (!isNaN(lng) && selectedMapLocation) {
+                    setSelectedMapLocation({ ...selectedMapLocation, longitude: lng })
+                  }
+                }}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.useCurrentLocationButton}
+              onPress={async () => {
+                const newLocation = await updateCurrentLocation()
+                if (newLocation) {
+                  setSelectedMapLocation({
+                    latitude: newLocation.latitude,
+                    longitude: newLocation.longitude,
+                  })
+                  Alert.alert(
+                    translations.success[language],
+                    language === "en" ? "Current location loaded!" : "Position actuelle chargée !",
+                    [{ text: "OK" }]
+                  )
+                }
+              }}
+            >
+              <Text style={styles.useCurrentLocationText}>
+                🎯 {language === "en" ? "Use Current Location" : "Utiliser position actuelle"}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.locationEditHint}>
+              <Text style={styles.locationHintText}>
+                💡 {language === "en" 
+                  ? "Tip: You can paste coordinates from Google Maps or any location service" 
+                  : "Astuce : Vous pouvez coller des coordonnées depuis Google Maps"}
+              </Text>
+            </View>
+          </ScrollView>
+
+          <View style={styles.mapFooter}>
+            <View style={styles.mapButtonsRow}>
+              <TouchableOpacity 
+                style={styles.mapCancelButton}
+                onPress={() => setShowMapModal(false)}
+              >
+                <Text style={styles.mapCancelButtonText}>
+                  {translations.cancel[language]}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.mapConfirmButton}
+                onPress={async () => {
+                  if (selectedMapLocation) {
+                    try {
+                      const geocode = await Location.reverseGeocodeAsync(selectedMapLocation)
+                      let address = "Unknown Location"
+                      if (geocode[0]) {
+                        address = `${geocode[0].street || ""}, ${geocode[0].city || ""}, ${geocode[0].region || ""}, ${geocode[0].country || ""}`.trim()
+                      }
+                      
+                      const newLocationData: LocationData = {
+                        address,
+                        latitude: selectedMapLocation.latitude,
+                        longitude: selectedMapLocation.longitude,
+                        label: "Current Location"
+                      }
+                      setAutoCurrentLocation(newLocationData)
+                      setShowMapModal(false)
+                      
+                      Alert.alert(
+                        translations.success[language],
+                        language === "en" ? "Location updated!" : "Position mise à jour !",
+                        [{ text: "OK" }]
+                      )
+                    } catch (error) {
+                      Alert.alert(
+                        translations.error[language],
+                        language === "en" ? "Failed to get address" : "Échec de récupération de l'adresse"
+                      )
+                    }
+                  }
+                }}
+              >
+                <Text style={styles.mapConfirmButtonText}>
+                  {language === "en" ? "Confirm" : "Confirmer"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   )
 }
@@ -416,6 +1229,7 @@ export default function DashboardScreen({ navigation }: any) {
 function AddCredentialModal({
   visible,
   type,
+  initialLocationData,
   onClose,
   onAdd,
   translations,
@@ -423,8 +1237,9 @@ function AddCredentialModal({
 }: {
   visible: boolean
   type: CredentialType | null
+  initialLocationData: { address: string; latitude: number; longitude: number } | null
   onClose: () => void
-  onAdd: (credential: Credential) => void
+  onAdd: (credential: Credential) => Promise<void>
   translations: any
   language: string
 }) {
@@ -439,6 +1254,21 @@ function AddCredentialModal({
   const [address, setAddress] = useState("")
   const [locationLabel, setLocationLabel] = useState("")
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null)
+  const [personalName, setPersonalName] = useState("")
+  const [personalDetails, setPersonalDetails] = useState("")
+  const [personalImageUri, setPersonalImageUri] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+
+  // Auto-populate location fields when initialLocationData is provided
+  useEffect(() => {
+    if (initialLocationData && type === "location") {
+      setAddress(initialLocationData.address)
+      setCurrentLocation({
+        latitude: initialLocationData.latitude,
+        longitude: initialLocationData.longitude,
+      })
+    }
+  }, [initialLocationData, type])
 
   const handleGetLocation = async () => {
     try {
@@ -483,7 +1313,9 @@ function AddCredentialModal({
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSaving) return // Prevent double-save
+    
     if (!title.trim()) {
       Alert.alert(translations.error[language], translations.enterTitle[language])
       return
@@ -526,6 +1358,20 @@ function AddCredentialModal({
         longitude: currentLocation.longitude,
         label: locationLabel || "My Location",
       }
+    } else if (type === "personal") {
+      if (!personalName.trim()) {
+        Alert.alert(translations.error[language], language === "en" ? "Please enter a name" : "Veuillez saisir un nom")
+        return
+      }
+      if (!personalDetails.trim()) {
+        Alert.alert(translations.error[language], language === "en" ? "Please enter some details" : "Veuillez saisir des détails")
+        return
+      }
+      data = {
+        name: personalName,
+        details: personalDetails,
+        imageUri: personalImageUri || undefined,
+      }
     }
 
     const credential: Credential = {
@@ -536,8 +1382,16 @@ function AddCredentialModal({
       createdAt: new Date(),
     }
 
-    onAdd(credential)
-    resetForm()
+    try {
+      setIsSaving(true)
+      await onAdd(credential)
+      resetForm()
+    } catch (error) {
+      console.error('Save error:', error)
+      // Error is already handled in onAdd
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const resetForm = () => {
@@ -552,6 +1406,9 @@ function AddCredentialModal({
     setAddress("")
     setLocationLabel("")
     setCurrentLocation(null)
+    setPersonalName("")
+    setPersonalDetails("")
+    setPersonalImageUri("")
   }
 
   if (!type) return null
@@ -687,14 +1544,69 @@ function AddCredentialModal({
                 )}
               </>
             )}
+
+            {type === "personal" && (
+              <>
+                <TouchableOpacity style={styles.imagePickerButton} onPress={async () => {
+                  const result = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ["images"],
+                    allowsEditing: true,
+                    quality: 1,
+                  })
+                  if (!result.canceled && result.assets[0]) {
+                    setPersonalImageUri(result.assets[0].uri)
+                  }
+                }}>
+                  {personalImageUri ? (
+                    <Image source={{ uri: personalImageUri }} style={styles.previewImage} />
+                  ) : (
+                    <View style={styles.personalPhotoPlaceholder}>
+                      <Text style={styles.personalPhotoPlaceholderIcon}>👤</Text>
+                      <Text style={styles.imagePickerText}>
+                        {language === "en" ? "📷 Add Photo (Optional)" : "📷 Ajouter une photo (Facultatif)"}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder={language === "en" ? "Name" : "Nom"}
+                  placeholderTextColor="#64748b"
+                  value={personalName}
+                  onChangeText={setPersonalName}
+                />
+                <TextInput
+                  style={[styles.modalInput, styles.personalDetailsInput]}
+                  placeholder={language === "en" ? "Details (e.g., role, relationship, contact info)" : "Détails (ex: rôle, relation, contact)"}
+                  placeholderTextColor="#64748b"
+                  value={personalDetails}
+                  onChangeText={setPersonalDetails}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              </>
+            )}
           </ScrollView>
 
           <View style={styles.modalFooter}>
-            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+            <TouchableOpacity 
+              style={styles.cancelButton} 
+              onPress={onClose}
+              disabled={isSaving}
+            >
               <Text style={styles.cancelButtonText}>{translations.cancel[language]}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-              <Text style={styles.saveButtonText}>{translations.save[language]}</Text>
+            <TouchableOpacity 
+              style={[styles.saveButton, isSaving && { opacity: 0.6 }]} 
+              onPress={handleSave}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.saveButtonText}>{translations.save[language]}</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -1073,5 +1985,458 @@ const styles = StyleSheet.create({
   locationCapturedCoords: {
     fontSize: 12,
     color: "#94a3b8",
+  },
+  // New Activity Block Styles
+  activitiesContainer: {
+    gap: 20,
+  },
+  activityBlock: {
+    backgroundColor: "rgba(30, 41, 59, 0.8)",
+    borderWidth: 1,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  activityHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  activityTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    flex: 1,
+  },
+  activityIcon: {
+    fontSize: 28,
+  },
+  activityTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#ffffff",
+    flex: 1,
+  },
+  activityBadge: {
+    backgroundColor: "#0ea5e9",
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minWidth: 28,
+    marginRight: 8,
+    alignItems: "center",
+  },
+  activityBadgeText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#ffffff",
+  },
+  addButton: {
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 1,
+    borderColor: "#0ea5e9",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  addButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0ea5e9",
+  },
+  activityContent: {
+    minHeight: 80,
+  },
+  activityItem: {
+    width: 140,
+    marginRight: 12,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    borderRadius: 12,
+    padding: 12,
+    position: "relative",
+  },
+  itemImage: {
+    width: "100%",
+    height: 100,
+    borderRadius: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    marginBottom: 8,
+  },
+  itemTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#ffffff",
+    marginBottom: 4,
+  },
+  cardItem: {
+    width: 200,
+    height: 120,
+    marginRight: 12,
+    backgroundColor: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    borderRadius: 12,
+    padding: 16,
+    justifyContent: "space-between",
+    position: "relative",
+  },
+  cardExpiry: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.8)",
+    marginTop: 4,
+  },
+  listItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+  },
+  listItemText: {
+    fontSize: 14,
+    color: "#ffffff",
+    flex: 1,
+    marginRight: 12,
+  },
+  locationItem: {
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    position: "relative",
+  },
+  deleteButton: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(239, 68, 68, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  deleteButtonSmall: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderWidth: 1,
+    borderColor: "#ef4444",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    color: "#ffffff",
+    fontWeight: "600",
+  },
+  emptyBlockText: {
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+    fontStyle: "italic",
+    paddingVertical: 20,
+  },
+  // Current Location Styles
+  currentLocationCard: {
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 2,
+    borderColor: "rgba(34, 197, 94, 0.3)",
+  },
+  locationUpdateInfo: {
+    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "rgba(34, 197, 94, 0.2)",
+  },
+  locationUpdateText: {
+    fontSize: 12,
+    color: "#22c55e",
+    textAlign: "center",
+    fontWeight: "600",
+  },
+  locationDetailsContainer: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 16,
+    marginBottom: 16,
+  },
+  locationIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(34, 197, 94, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  locationIconLarge: {
+    fontSize: 32,
+  },
+  locationTextContainer: {
+    flex: 1,
+  },
+  currentLocationLabel: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#22c55e",
+    marginBottom: 8,
+  },
+  currentLocationAddress: {
+    fontSize: 15,
+    color: "#ffffff",
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  coordsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  coordLabel: {
+    fontSize: 12,
+    color: "#94a3b8",
+    fontWeight: "600",
+  },
+  currentLocationCoords: {
+    fontSize: 11,
+    color: "#0ea5e9",
+    fontFamily: "monospace",
+    flexShrink: 1,
+  },
+  changeLocationButton: {
+    backgroundColor: "rgba(14, 165, 233, 0.2)",
+    borderWidth: 1,
+    borderColor: "#0ea5e9",
+    borderRadius: 12,
+    padding: 14,
+    alignItems: "center",
+  },
+  changeLocationText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0ea5e9",
+  },
+  locationLoadingContainer: {
+    padding: 30,
+    alignItems: "center",
+  },
+  locationLoadingText: {
+    fontSize: 16,
+    color: "#94a3b8",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  locationLoadingSubtext: {
+    fontSize: 12,
+    color: "#64748b",
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  // Location Edit Modal Styles
+  mapModalContainer: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+  },
+  mapHeader: {
+    backgroundColor: "#1e293b",
+    padding: 20,
+    paddingTop: 50,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(14, 165, 233, 0.3)",
+  },
+  mapTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#ffffff",
+  },
+  mapCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  mapCloseButtonText: {
+    fontSize: 24,
+    color: "#ef4444",
+  },
+  mapContent: {
+    flex: 1,
+    padding: 20,
+  },
+  locationEditSection: {
+    marginBottom: 24,
+  },
+  locationEditLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#0ea5e9",
+    marginBottom: 12,
+  },
+  currentCoordsDisplay: {
+    backgroundColor: "rgba(14, 165, 233, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(14, 165, 233, 0.3)",
+    borderRadius: 12,
+    padding: 16,
+  },
+  coordDisplayText: {
+    fontSize: 15,
+    color: "#ffffff",
+    marginBottom: 8,
+    fontFamily: "monospace",
+  },
+  coordInput: {
+    backgroundColor: "rgba(30, 41, 59, 0.8)",
+    borderWidth: 1,
+    borderColor: "#0369a1",
+    borderRadius: 12,
+    padding: 16,
+    color: "#ffffff",
+    fontSize: 16,
+    marginBottom: 12,
+    fontFamily: "monospace",
+  },
+  useCurrentLocationButton: {
+    backgroundColor: "rgba(34, 197, 94, 0.2)",
+    borderWidth: 1,
+    borderColor: "#22c55e",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  useCurrentLocationText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#22c55e",
+  },
+  locationEditHint: {
+    backgroundColor: "rgba(251, 146, 60, 0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(251, 146, 60, 0.3)",
+    borderRadius: 12,
+    padding: 16,
+  },
+  locationHintText: {
+    fontSize: 13,
+    color: "#fb923c",
+    lineHeight: 20,
+  },
+  mapFooter: {
+    backgroundColor: "#1e293b",
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(14, 165, 233, 0.3)",
+  },
+  mapButtonsRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  mapCancelButton: {
+    flex: 1,
+    backgroundColor: "rgba(100, 116, 139, 0.2)",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#64748b",
+  },
+  mapCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#94a3b8",
+  },
+  mapConfirmButton: {
+    flex: 1,
+    backgroundColor: "#22c55e",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+  },
+  mapConfirmButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ffffff",
+  },
+  // Personal Info Styles
+  personalInfoCard: {
+    width: 160,
+    marginRight: 12,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    borderRadius: 12,
+    padding: 12,
+    position: "relative",
+    alignItems: "center",
+  },
+  personalInfoImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    marginBottom: 12,
+  },
+  personalInfoImagePlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(168, 85, 247, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  personalInfoImagePlaceholderText: {
+    fontSize: 48,
+  },
+  personalInfoName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#ffffff",
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  personalInfoDetails: {
+    fontSize: 12,
+    color: "#94a3b8",
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  personalPhotoPlaceholder: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  personalPhotoPlaceholderIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  personalDetailsInput: {
+    height: 100,
+    paddingTop: 16,
+  },
+  // Loading Styles
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#94a3b8",
+    marginTop: 16,
   },
 })

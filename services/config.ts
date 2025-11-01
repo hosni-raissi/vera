@@ -34,6 +34,13 @@ export const API_ENDPOINTS = {
   UPLOAD_FILE: '/storage/upload',
   UPLOAD_DATA: '/storage/upload-data',
   GET_FILES: '/storage/files',
+  DOWNLOAD_FILE: '/storage/download',
+  
+  // Clothes
+  GET_CLOTHES: '/storage/clothes',
+  SAVE_CLOTHES: '/storage/clothes',
+  UPLOAD_CLOTHES_IMAGE: '/storage/clothes/image',
+  UPGRADE_FOLDER: '/storage/upgrade-folder',
   
   // Chat
   GET_MESSAGES: '/chat/messages',
